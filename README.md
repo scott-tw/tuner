@@ -1,0 +1,27 @@
+# 調音器＋人聲音高檢測
+
+給合唱團與樂器使用的手機網頁 App（PWA）。所有分析都在裝置上完成，不上傳任何聲音。完整需求見 [SPEC.md](SPEC.md)。
+
+## 進度
+
+- [x] 階段 1：偵測引擎（`js/pitch.js`）＋自動測試（`tests/pitch.test.js`）
+- [ ] 階段 2：樂器調音器畫面
+- [ ] 階段 3：人聲模式基本版
+- [ ] 階段 4：音高軌跡＋目標音＋參考音
+- [ ] 階段 5：PWA＋部署
+
+## 執行測試
+
+```bash
+node --test
+```
+
+（Node 25 起，`node --test tests/` 這種寫法會把資料夾當成檔案而失敗；不加參數時會自動找到 `tests/pitch.test.js`。）
+
+## 本機預覽
+
+```bash
+python3 -m http.server 8000
+```
+
+再用瀏覽器開 http://localhost:8000。
