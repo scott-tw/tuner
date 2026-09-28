@@ -10,11 +10,12 @@ let stream = null;
 let source = null;
 let analyser = null;
 let buffer = null;
+let usingRaw = true;      // 目前是否用「原始聲音」（關閉降噪等處理）收音
 
 export class MicError extends Error {
   constructor(kind, cause) {
     super(kind);
-    this.kind = kind; // 'insecure' | 'denied' | 'notfound' | 'other'
+    this.kind = kind; // 'insecure' | 'denied' | 'notfound' | 'timeout' | 'silent' | 'other'
     this.cause = cause;
   }
 }
@@ -26,8 +27,22 @@ function classify(err) {
   return 'other';
 }
 
+const RAW_AUDIO = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+const START_TIMEOUT_MS = 5000;
+
+// 查詢麥克風權限：'granted' | 'prompt' | 'denied' | 'unknown'
+export async function micPermission() {
+  try {
+    const p = await navigator.permissions.query({ name: 'microphone' });
+    return p.state;
+  } catch {
+    return 'unknown';
+  }
+}
+
 // 必須在 click handler 內直接呼叫（不可先 await 別的東西）
-export function startAudio() {
+// raw = true：原始聲音（最準）；false：手機一般收音方式（部分裝置原始聲音收不到時的備案）
+export function startAudio({ raw = true } = {}) {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
     return Promise.reject(new MicError('insecure'));
   }
@@ -36,12 +51,13 @@ export function startAudio() {
     ctx = new AC();
   }
   const resumed = ctx.resume();
-  const mic = navigator.mediaDevices.getUserMedia({
-    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-  });
-  return Promise.all([resumed, mic]).then(([, s]) => {
+  const mic = navigator.mediaDevices.getUserMedia({ audio: raw ? RAW_AUDIO : true });
+  let timedOut = false;
+  const started = Promise.all([resumed, mic]).then(([, s]) => {
+    if (timedOut) { s.getTracks().forEach((t) => t.stop()); return; } // 太晚才回應，已經顯示錯誤了
     stopMic();
     stream = s;
+    usingRaw = raw;
     source = ctx.createMediaStreamSource(stream);
     analyser = ctx.createAnalyser();
     analyser.fftSize = BUFFER_SIZE;
@@ -50,6 +66,35 @@ export function startAudio() {
   }, (err) => {
     throw err instanceof MicError ? err : new MicError(classify(err), err);
   });
+
+  // 已經允許權限卻遲遲沒有回應，就當成失敗（正在詢問權限時不計時）
+  const timeout = new Promise((_, reject) => {
+    micPermission().then((state) => {
+      if (state === 'prompt') return;
+      setTimeout(() => { timedOut = true; reject(new MicError('timeout')); }, START_TIMEOUT_MS);
+    });
+  });
+  return Promise.race([started, timeout]);
+}
+
+// 麥克風檢查用的狀態
+export function getDiagnostics() {
+  const track = stream && stream.getAudioTracks()[0];
+  let settings = {};
+  try { settings = track ? track.getSettings() : {}; } catch { /* 不支援 */ }
+  return {
+    ctxState: ctx ? ctx.state : 'none',
+    sampleRate: ctx ? ctx.sampleRate : 0,
+    trackState: track ? track.readyState : 'none',
+    trackMuted: track ? track.muted : false,
+    trackLabel: track ? track.label : '',
+    raw: usingRaw,
+    settings,
+  };
+}
+
+export function isUsingRaw() {
+  return usingRaw;
 }
 
 function stopMic() {

@@ -64,6 +64,16 @@
           <button class="option" data-naming="both">兩者並列</button>
         </div>
       </div>
+      <div class="card">
+        <h3>🎙️ 麥克風檢查</h3>
+        <p class="hint" style="margin:0 0 12px">收不到聲音時，按下面的按鈕，然後對著手機說話或唱歌。</p>
+        <button class="chip wide" id="btn-mic-check">開始檢查</button>
+        <div class="mic-check" id="mic-check" hidden>
+          <div class="level" aria-hidden="true"><div class="level-bar" id="mic-level"></div></div>
+          <p class="check-result" id="mic-result"></p>
+          <dl class="check-list" id="mic-info"></dl>
+        </div>
+      </div>
     </div>
   </section>
 

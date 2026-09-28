@@ -6,6 +6,7 @@ import { createPitchGraph } from './graph.js';
 import {
   startAudio, stopAudio, getSampleRate, readBuffer, needsResume, resumeAudio, onStateChange,
   playReference, stopReference, isShortReferencePlaying, isReferencePlaying,
+  micPermission, getDiagnostics, isUsingRaw,
 } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
@@ -185,6 +186,7 @@ let current = 'home';
 
 function showScreen(name) {
   if (mode && mode.screen !== name) stopListening();
+  if (checking && name !== 'settings') stopMicCheck();
   document.querySelectorAll('.screen').forEach((s) => { s.hidden = s.id !== name; });
   current = name;
   window.scrollTo(0, 0);
@@ -232,6 +234,9 @@ let lastState = 'idle';
 let wakeLock = null;
 const graph = createPitchGraph($('pitch-graph'));
 let lowFrames = [];       // 童聲模式：最近 2 秒內是否唱得比 E3 低
+let lastSignal = 0;       // 最後一次收到「非完全無聲」的時間
+let fallbackTried = false;
+const SILENT_MS = 2500;   // 麥克風連續送出完全無聲這麼久，視為沒收到聲音
 
 function bindUI(screenId) {
   const root = $(screenId);
@@ -250,15 +255,17 @@ function bindUI(screenId) {
   };
 }
 
-function beginListening(m) {
+function beginListening(m, { raw = true } = {}) {
   mode = m;
+  if (raw) fallbackTried = false;
   ui = bindUI(m.screen);
   $('mic-error').hidden = true;
   ui.tuner.hidden = false;
   resetDetection();
-  startAudio().then(() => {
+  startAudio({ raw }).then(() => {
     if (mode !== m) { return; } // 等權限時已離開
     listening = true;
+    lastSignal = performance.now();
     onStateChange(checkResume);
     requestWakeLock();
     lastAnalysis = 0;
@@ -305,6 +312,7 @@ function analyzeFrame(now) {
   const buf = readBuffer();
   const sr = getSampleRate();
   if (!buf || !sr) return;
+  if (!checkSilence(buf, now)) return;
   // 短的參考音播放中先暫停偵測，避免把參考音當成歌聲
   if (mode === MODES.voice && isShortReferencePlaying()) return;
   const r = detectPitch(buf, sr, mode.preset());
@@ -323,6 +331,26 @@ function analyzeFrame(now) {
   } else if (hasNote && now - lastHeard > HOLD_MS) {
     fadeOut();
   }
+}
+
+// 麥克風送來的若是「完全無聲」（連一點雜音都沒有），代表聲音沒進來。
+// 先自動改用手機一般的收音方式重試一次，還是不行就顯示說明。回傳 false 表示這格不用分析。
+function checkSilence(buf, now) {
+  let peak = 0;
+  for (let i = 0; i < buf.length; i += 4) peak = Math.max(peak, Math.abs(buf[i]));
+  if (peak > 1e-6) { lastSignal = now; return true; }
+  if (now - lastSignal < SILENT_MS) return true;
+  const m = mode;
+  listening = false;
+  cancelAnimationFrame(rafId);
+  if (!fallbackTried && isUsingRaw()) {
+    fallbackTried = true;
+    beginListening(m, { raw: false });
+  } else {
+    stopAudio();
+    showMicError({ kind: 'silent' });
+  }
+  return false;
 }
 
 function median(arr) {
@@ -449,6 +477,16 @@ function showMicError(err) {
         <li>回來按「再試一次」</li>
       </ol>
       <p>如果還是不行，請到手機的「設定 → 應用程式 → 瀏覽器 → 權限」確認麥克風已開啟。</p>`;
+  } else if (kind === 'silent' || kind === 'timeout') {
+    title.textContent = kind === 'silent' ? '麥克風沒有收到聲音' : '麥克風沒有回應';
+    body.innerHTML = `
+      <p>請依序試試看：</p>
+      <ol>
+        <li>關掉其他正在使用麥克風的 App，以及用瀏覽器開著的「調音器」網頁</li>
+        <li>把這個 App 完全關掉（從最近使用的 App 清單滑掉），再重新打開</li>
+        <li>到手機的「設定 → 應用程式」，找到安裝時用的瀏覽器（Chrome 或 Samsung Internet），在「權限 → 麥克風」選「允許」</li>
+        <li>還是不行的話，到首頁右上角 ⚙️「設定」→「麥克風檢查」，把結果截圖給老師</li>
+      </ol>`;
   } else if (kind === 'notfound') {
     title.textContent = '找不到麥克風';
     body.innerHTML = '<p>這台裝置好像沒有可用的麥克風。請確認沒有其他 App 正在使用麥克風，再試一次。</p>';
@@ -497,6 +535,117 @@ async function requestWakeLock() {
 function releaseWakeLock() {
   try { if (wakeLock) wakeLock.release(); } catch { /* 略過 */ }
   wakeLock = null;
+}
+
+// ---------- 麥克風檢查（設定頁） ----------
+
+let checking = false;
+let checkRaf = 0;
+let checkInfoAt = 0;
+let checkStart = 0;
+let checkHeard = false;   // 有收到明顯的聲音
+let checkSignal = false;  // 至少有一點點聲音（不是完全無聲）
+let checkFallback = false;
+let checkPermission = 'unknown';
+let checkError = null;
+
+function browserName() {
+  const ua = navigator.userAgent;
+  const os = (ua.match(/Android [\d.]+/) || ua.match(/(iPhone|iPad|CPU) OS [\d_]+/) || [''])[0].replace(/_/g, '.');
+  const v = (re) => (ua.match(re) || [])[1] || '';
+  let b = 'Chrome ' + v(/Chrome\/(\d+)/);
+  if (/SamsungBrowser/.test(ua)) b = '三星瀏覽器 ' + v(/SamsungBrowser\/([\d.]+)/);
+  else if (/CriOS/.test(ua)) b = 'Chrome（iOS）' + v(/CriOS\/(\d+)/);
+  else if (!/Chrome/.test(ua) && /Safari/.test(ua)) b = 'Safari ' + v(/Version\/([\d.]+)/);
+  return `${b}／${os || navigator.platform}`;
+}
+
+const isStandalone = () => window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+
+$('btn-mic-check').addEventListener('click', () => {
+  if (checking) stopMicCheck();
+  else startMicCheck({ raw: true }); // 在 click handler 內直接啟動
+});
+
+function startMicCheck({ raw }) {
+  checking = true;
+  if (raw) { checkFallback = false; checkHeard = false; checkSignal = false; }
+  checkError = null;
+  checkStart = performance.now();
+  $('btn-mic-check').textContent = '停止檢查';
+  $('mic-check').hidden = false;
+  $('mic-result').textContent = '⏳ 啟動麥克風中…';
+  micPermission().then((p) => { checkPermission = p; });
+  startAudio({ raw }).then(() => {
+    if (!checking) { stopAudio(); return; }
+    micPermission().then((p) => { checkPermission = p; });
+    cancelAnimationFrame(checkRaf);
+    checkRaf = requestAnimationFrame(checkLoop);
+  }, (err) => {
+    checkError = err.kind || 'other';
+    renderCheck(performance.now());
+  });
+}
+
+function stopMicCheck() {
+  checking = false;
+  cancelAnimationFrame(checkRaf);
+  stopAudio();
+  $('btn-mic-check').textContent = '開始檢查';
+  $('mic-level').style.width = '0';
+}
+
+function checkLoop(now) {
+  checkRaf = requestAnimationFrame(checkLoop);
+  const buf = readBuffer();
+  if (!buf) return;
+  let sum = 0, peak = 0;
+  for (let i = 0; i < buf.length; i++) { sum += buf[i] * buf[i]; peak = Math.max(peak, Math.abs(buf[i])); }
+  const rms = Math.sqrt(sum / buf.length);
+  if (peak > 1e-6) checkSignal = true;
+  if (rms > 0.01) checkHeard = true;
+  $('mic-level').style.width = `${Math.min(100, rms * 500)}%`;
+
+  // 原始聲音收不到任何東西，自動改用一般收音方式再試
+  if (!checkSignal && !checkFallback && now - checkStart > SILENT_MS) {
+    checkFallback = true;
+    cancelAnimationFrame(checkRaf);
+    startMicCheck({ raw: false });
+    return;
+  }
+  if (now - checkInfoAt > 300) { checkInfoAt = now; renderCheck(now); }
+}
+
+function renderCheck(now) {
+  const d = getDiagnostics();
+  const PERM = { granted: '✅ 已允許', prompt: '尚未詢問', denied: '❌ 已拒絕', unknown: '無法查詢' };
+  const CTX = { running: '✅ 運作中', suspended: '⚠️ 暫停', interrupted: '⚠️ 被中斷', closed: '❌ 已關閉', none: '未啟動' };
+  const TRACK = { live: '✅ 已開啟', ended: '❌ 已關閉', none: '未開啟' };
+  const rows = [
+    ['使用方式', isStandalone() ? '已安裝的 App' : '瀏覽器網頁'],
+    ['瀏覽器', browserName()],
+    ['麥克風權限', PERM[checkPermission] || checkPermission],
+    ['音訊引擎', CTX[d.ctxState] || d.ctxState],
+    ['麥克風', (TRACK[d.trackState] || d.trackState) + (d.trackMuted ? '（⚠️ 被系統靜音）' : '')],
+    ['收音方式', d.raw ? '原始聲音' : '一般（含降噪）'],
+    ['取樣率', d.sampleRate ? `${d.sampleRate} Hz` : '–'],
+    ['裝置', d.trackLabel || '–'],
+  ];
+  $('mic-info').innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+
+  let result;
+  if (checkError) {
+    result = { denied: '❌ 麥克風權限被拒絕', notfound: '❌ 找不到麥克風', timeout: '❌ 麥克風沒有回應', insecure: '❌ 這個網址不能使用麥克風' }[checkError] || '❌ 麥克風無法啟動';
+  } else if (checkHeard) {
+    result = '✅ 有收到聲音，麥克風正常！';
+  } else if (!checkSignal && checkFallback && now - checkStart > SILENT_MS) {
+    result = '❌ 麥克風沒有收到任何聲音（完全無聲）';
+  } else if (checkSignal && now - checkStart > 4000) {
+    result = '⚠️ 聲音很小，請靠近手機說話';
+  } else {
+    result = '⏳ 請對著手機說話或唱歌…';
+  }
+  $('mic-result').textContent = result;
 }
 
 // ---------- 啟動 ----------

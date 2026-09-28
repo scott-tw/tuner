@@ -165,6 +165,28 @@ button {
 }
 .hint { color: var(--muted); font-size: 16px; margin: 12px 0 0; line-height: 1.5; }
 
+/* 麥克風檢查 */
+.chip.wide { width: 100%; }
+.mic-check { margin-top: 14px; }
+.level {
+  height: 18px;
+  border-radius: 9px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  overflow: hidden;
+}
+.level-bar { height: 100%; width: 0; background: var(--good); transition: width 0.08s; }
+.check-result { font-size: 20px; font-weight: 700; margin: 12px 0; }
+.check-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 12px;
+  margin: 0;
+  font-size: 16px;
+}
+.check-list dt { color: var(--muted); }
+.check-list dd { margin: 0; word-break: break-all; }
+
 /* 樂器調音 */
 .a4-badge { font-size: 16px; color: var(--muted); padding-right: 6px; }
 
