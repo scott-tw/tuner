@@ -504,3 +504,10 @@ function releaseWakeLock() {
 loadSettings();
 renderSettings();
 history.replaceState({ screen: 'home' }, '');
+
+// 離線使用：註冊 Service Worker（不支援時略過）
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => { /* 略過 */ });
+  });
+}
