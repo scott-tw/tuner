@@ -3,7 +3,7 @@
 
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { detectPitch, analyze, freqToNote, PRESETS } from '../js/pitch.js';
+import { detectPitch, analyze, freqToNote, PRESETS, createOctaveGuard } from '../js/pitch.js';
 
 const SAMPLE_RATES = [44100, 48000];
 const N = 4096;
@@ -327,4 +327,60 @@ test('效能：樂器模式 4096 點 @48000 每格耗時', () => {
   report.push({ 情況: '效能（本機 Mac）', 次數: runs, '平均誤差(音分)': '-', '最大誤差(音分)': '-',
     八度正確率: '-', 備註: `每格 ${ms.toFixed(2)} ms（約 ${Math.floor(1000 / ms)} 次/秒上限）` });
   assert.ok(ms < 25);
+});
+
+// ---------- 八度防護第 2 層：連續性檢查 ----------
+
+const FRAME_MS = 33; // 人聲模式約 30 次／秒
+
+test('連續性檢查：零星的八度誤判會被拉回正確八度', () => {
+  const rng = makeRng(9);
+  const guard = createOctaveGuard();
+  let wrong = 0, injected = 0, total = 0;
+  for (let i = 0; i < 3000; i++) {
+    const truth = 57 + 0.2 * Math.sin(i / 5); // A3 附近，帶一點顫音
+    let input = truth;
+    // 約 8% 的格子被判錯八度（上或下），最多連續 2 格（66 ms）
+    if (rng() < 0.05) {
+      const k = rng() < 0.5 ? 12 : -12;
+      const len = rng() < 0.5 ? 1 : 2;
+      for (let j = 0; j < len && i < 3000; j++, i++) {
+        injected++; total++;
+        const out = guard.update(truth + k, i * FRAME_MS);
+        if (Math.abs(out - truth) > 0.5) wrong++;
+      }
+    }
+    total++;
+    const out = guard.update(input, i * FRAME_MS);
+    if (Math.abs(out - truth) > 0.5) wrong++;
+  }
+  report.push({ 情況: '連續性檢查（注入八度誤判）', 次數: total, '平均誤差(音分)': '-', '最大誤差(音分)': '-',
+    八度正確率: `${((100 * (total - wrong)) / total).toFixed(2)}%`, 備註: `注入 ${injected} 格錯誤八度` });
+  assert.equal(wrong, 0);
+});
+
+test('連續性檢查：真的唱高八度，約 120–170 ms 內採信', () => {
+  const guard = createOctaveGuard();
+  let t = 0;
+  for (let i = 0; i < 20; i++, t += FRAME_MS) guard.update(50, t); // D3
+  const start = t;
+  let acceptedAt = null;
+  for (let i = 0; i < 20; i++, t += FRAME_MS) {
+    const out = guard.update(62, t); // D4
+    if (acceptedAt === null && Math.abs(out - 62) < 0.01) acceptedAt = t - start;
+  }
+  assert.ok(acceptedAt !== null && acceptedAt >= 120 && acceptedAt <= 170, `採信時間 ${acceptedAt} ms`);
+  // 往下兩個八度也一樣
+  for (let i = 0; i < 20; i++, t += FRAME_MS) guard.update(38, t);
+  assert.equal(guard.update(38, t), 38);
+});
+
+test('連續性檢查：非八度的跳音立即採信；靜默後重新開始', () => {
+  const guard = createOctaveGuard();
+  guard.update(60, 0);
+  guard.update(60, 33);
+  assert.equal(guard.update(67, 66), 67);   // 跳五度：立即
+  assert.equal(guard.update(71, 99), 71);   // 大七度（11 半音以內）：立即
+  assert.equal(guard.update(null, 132), null);
+  assert.equal(guard.update(59, 800), 59);  // 靜默 700 ms 後，低八度的新句子直接採信
 });

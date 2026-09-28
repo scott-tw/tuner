@@ -253,6 +253,61 @@ body.in-tune .cents,
 body.in-tune .tune-hint { color: var(--good); }
 body.in-tune .needle { background: var(--good); }
 
+/* 人聲音高 */
+.segmented {
+  display: flex;
+  gap: 6px;
+  margin: 0 16px;
+  padding: 5px;
+  border-radius: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  align-self: center;
+  width: calc(100% - 32px);
+  max-width: 480px;
+}
+.segmented button {
+  flex: 1;
+  min-height: 52px;
+  border: none;
+  border-radius: 12px;
+  background: none;
+  font-size: 22px;
+  font-weight: 700;
+}
+.segmented button.selected { background: var(--accent); color: var(--accent-text); }
+
+.voice-tuner { gap: 4px; padding-top: 8px; justify-content: flex-start; }
+.voice-tuner .note-main { font-size: clamp(80px, 24vw, 150px); }
+.voice-tuner .note-sub { font-size: 28px; }
+
+.staff {
+  width: 100%;
+  max-width: 340px;
+  color: var(--text);
+}
+.staff svg { display: block; width: 100%; height: auto; max-height: 36vh; }
+.staff .staff-line, .staff .ledger { stroke: currentColor; stroke-width: 1.4; }
+.staff .clef { fill: none; stroke: currentColor; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; }
+.staff .clef-dot { fill: currentColor; }
+.staff .clef-8 { fill: currentColor; font-size: 14px; font-weight: 700; }
+.staff .note { fill: var(--warn); transition: opacity 0.6s; }
+.staff .note.good { fill: var(--good); }
+.staff .note.idle { opacity: 0.25; }
+.staff .sharp { font-size: 26px; font-weight: 700; }
+
+.clef-switch { display: flex; gap: 8px; width: 100%; max-width: 420px; }
+.clef-switch button {
+  flex: 1;
+  min-height: 44px;
+  border-radius: 12px;
+  border: 2px solid var(--line);
+  background: var(--surface);
+  font-size: 16px;
+  font-weight: 600;
+}
+.clef-switch button.selected { border-color: var(--accent); color: var(--accent); }
+
 /* 麥克風錯誤 */
 .mic-error {
   margin: 0 auto;

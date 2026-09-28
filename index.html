@@ -26,7 +26,6 @@
       <button class="big-btn secondary" id="btn-voice">
         <span class="big-btn-icon">🎤</span><span>人聲音高</span>
       </button>
-      <p class="toast" id="toast" hidden></p>
     </div>
   </section>
 
@@ -66,36 +65,70 @@
     <header class="topbar">
       <button class="icon-btn back" data-back aria-label="返回">‹ 返回</button>
       <h2>樂器調音</h2>
-      <span class="a4-badge">A4 = <span id="inst-a4">440</span></span>
+      <span class="a4-badge">A4 = <span class="a4-num">440</span></span>
     </header>
 
-    <div class="tuner" id="tuner">
-      <div class="note-display idle" id="note-display">
-        <div class="note-main"><span id="note-name">–</span><span class="note-oct" id="note-oct"></span></div>
-        <div class="note-sub" id="note-sub">&nbsp;</div>
+    <div class="tuner">
+      <div class="note-display idle">
+        <div class="note-main"><span class="note-name">–</span><span class="note-oct"></span></div>
+        <div class="note-sub">&nbsp;</div>
       </div>
 
-      <div class="cents" id="cents">&nbsp;</div>
+      <div class="cents">&nbsp;</div>
 
       <div class="meter" aria-hidden="true">
         <div class="meter-zone"></div>
         <div class="meter-ticks">
           <span>−50</span><span>−25</span><span>0</span><span>+25</span><span>+50</span>
         </div>
-        <div class="needle" id="needle"></div>
+        <div class="needle"></div>
       </div>
 
-      <p class="tune-hint" id="tune-hint">請彈奏或吹奏一個音</p>
-      <p class="freq" id="freq">&nbsp;</p>
-    </div>
-
-    <!-- 麥克風無法使用時的說明 -->
-    <div class="mic-error" id="mic-error" hidden>
-      <h3 id="mic-error-title">需要使用麥克風</h3>
-      <div id="mic-error-body"></div>
-      <button class="big-btn" id="btn-retry">再試一次</button>
+      <p class="tune-hint">請彈奏或吹奏一個音</p>
+      <p class="freq">&nbsp;</p>
     </div>
   </section>
+
+  <!-- 人聲音高 -->
+  <section id="voice" class="screen" hidden>
+    <header class="topbar">
+      <button class="icon-btn back" data-back aria-label="返回">‹ 返回</button>
+      <h2>人聲音高</h2>
+      <span class="a4-badge">A4 = <span class="a4-num">440</span></span>
+    </header>
+
+    <div class="segmented" role="group" aria-label="聲音類型">
+      <button data-voice="child">童聲</button>
+      <button data-voice="female">女聲</button>
+      <button data-voice="male">男聲</button>
+    </div>
+
+    <div class="tuner voice-tuner">
+      <div class="note-display idle">
+        <div class="note-main"><span class="note-name">–</span><span class="note-oct"></span></div>
+        <div class="note-sub">&nbsp;</div>
+      </div>
+
+      <div class="cents">&nbsp;</div>
+
+      <div class="staff" id="staff"></div>
+
+      <div class="clef-switch" id="clef-switch" hidden>
+        <button data-clef="bass">低音譜號</button>
+        <button data-clef="treble8vb">高音譜號（低八度）</button>
+      </div>
+
+      <p class="tune-hint">請唱一個長音</p>
+      <p class="freq">&nbsp;</p>
+    </div>
+  </section>
+
+  <!-- 麥克風無法使用時的說明（顯示時會移到目前的畫面裡） -->
+  <div class="mic-error" id="mic-error" hidden>
+    <h3 id="mic-error-title">需要使用麥克風</h3>
+    <div id="mic-error-body"></div>
+    <button class="big-btn" id="btn-retry">再試一次</button>
+  </div>
 
   <!-- 點一下繼續 -->
   <div class="overlay" id="resume-overlay" hidden>

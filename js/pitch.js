@@ -165,3 +165,48 @@ export function analyze(buffer, sampleRate, options = {}) {
   const n = freqToNote(r.freq, options.a4 ?? 440);
   return { freq: r.freq, ...n, confidence: r.confidence };
 }
+
+// 八度防護第 2 層：連續性檢查（樂器模式不用）
+// 與前一個穩定音高相差約 12（或 24）個半音的突跳，需持續 holdMs 才採信；
+// 在那之前先把它移回原本的八度輸出。靜默超過 resetMs 後，下一個音直接採信。
+// 輸入與輸出都是小數 midi 值（69 = A4）；now 為毫秒時間。
+export function createOctaveGuard({ holdMs = 120, resetMs = 500, tolerance = 0.5 } = {}) {
+  let stable = null;
+  let lastTime = -Infinity;
+  let pending = null; // { k, midi, since }
+
+  return {
+    reset() {
+      stable = null;
+      pending = null;
+    },
+    update(midi, now) {
+      if (midi == null) return null;
+      if (stable === null || now - lastTime > resetMs) {
+        stable = midi;
+        pending = null;
+        lastTime = now;
+        return midi;
+      }
+      lastTime = now;
+      const diff = midi - stable;
+      const k = Math.round(diff / 12);
+      if (k !== 0 && Math.abs(diff - 12 * k) <= tolerance) {
+        if (pending && pending.k === k && Math.abs(midi - pending.midi) <= 1) {
+          if (now - pending.since >= holdMs) {
+            stable = midi;
+            pending = null;
+            return midi;
+          }
+          pending.midi = midi;
+        } else {
+          pending = { k, midi, since: now };
+        }
+        return midi - 12 * k;
+      }
+      pending = null;
+      stable = midi;
+      return midi;
+    },
+  };
+}
