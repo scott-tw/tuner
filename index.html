@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f6f4ef" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#16181c" media="(prefers-color-scheme: dark)">
+  <title>調音器</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- 首頁 -->
+  <section id="home" class="screen">
+    <header class="topbar">
+      <span></span>
+      <span></span>
+      <button class="icon-btn" id="btn-settings" aria-label="設定">⚙️</button>
+    </header>
+    <div class="home-body">
+      <h1 class="app-title">調音器</h1>
+      <p class="app-sub">聽聽看，音準不準？</p>
+      <button class="big-btn" id="btn-instrument">
+        <span class="big-btn-icon">🎸</span><span>樂器調音</span>
+      </button>
+      <button class="big-btn secondary" id="btn-voice">
+        <span class="big-btn-icon">🎤</span><span>人聲音高</span>
+      </button>
+      <p class="toast" id="toast" hidden></p>
+    </div>
+  </section>
+
+  <!-- 設定 -->
+  <section id="settings" class="screen" hidden>
+    <header class="topbar">
+      <button class="icon-btn back" data-back aria-label="返回">‹ 返回</button>
+      <h2>設定</h2>
+      <span></span>
+    </header>
+    <div class="settings-body">
+      <div class="card">
+        <h3>A4 基準音</h3>
+        <p class="a4-value"><span id="a4-value">440</span> Hz</p>
+        <div class="btn-row">
+          <button class="chip" data-a4-step="-1">−1</button>
+          <button class="chip" data-a4="438">438</button>
+          <button class="chip" data-a4="440">440</button>
+          <button class="chip" data-a4="442">442</button>
+          <button class="chip" data-a4-step="1">+1</button>
+        </div>
+        <p class="hint">一般是 440。合唱團或樂團若有指定，再照指定調整（430–446）。</p>
+      </div>
+      <div class="card">
+        <h3>音名顯示</h3>
+        <div class="btn-col">
+          <button class="option" data-naming="letter">音名（C D E…）</button>
+          <button class="option" data-naming="solfege">唱名（Do Re Mi…）</button>
+          <button class="option" data-naming="both">兩者並列</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 樂器調音 -->
+  <section id="instrument" class="screen" hidden>
+    <header class="topbar">
+      <button class="icon-btn back" data-back aria-label="返回">‹ 返回</button>
+      <h2>樂器調音</h2>
+      <span class="a4-badge">A4 = <span id="inst-a4">440</span></span>
+    </header>
+
+    <div class="tuner" id="tuner">
+      <div class="note-display idle" id="note-display">
+        <div class="note-main"><span id="note-name">–</span><span class="note-oct" id="note-oct"></span></div>
+        <div class="note-sub" id="note-sub">&nbsp;</div>
+      </div>
+
+      <div class="cents" id="cents">&nbsp;</div>
+
+      <div class="meter" aria-hidden="true">
+        <div class="meter-zone"></div>
+        <div class="meter-ticks">
+          <span>−50</span><span>−25</span><span>0</span><span>+25</span><span>+50</span>
+        </div>
+        <div class="needle" id="needle"></div>
+      </div>
+
+      <p class="tune-hint" id="tune-hint">請彈奏或吹奏一個音</p>
+      <p class="freq" id="freq">&nbsp;</p>
+    </div>
+
+    <!-- 麥克風無法使用時的說明 -->
+    <div class="mic-error" id="mic-error" hidden>
+      <h3 id="mic-error-title">需要使用麥克風</h3>
+      <div id="mic-error-body"></div>
+      <button class="big-btn" id="btn-retry">再試一次</button>
+    </div>
+  </section>
+
+  <!-- 點一下繼續 -->
+  <div class="overlay" id="resume-overlay" hidden>
+    <button class="overlay-btn" id="btn-resume">
+      <span class="overlay-icon">▶︎</span>
+      <span>點一下繼續</span>
+    </button>
+  </div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>

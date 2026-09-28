@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>測試音產生器</title>
+  <style>
+    :root {
+      --bg: #f6f4ef; --surface: #fff; --text: #1d1f23; --muted: #6b6f76; --line: #dcd8cf;
+      --accent: #2f6fd6; --accent-text: #fff; --stop: #d64545;
+      color-scheme: light dark;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #16181c; --surface: #22252b; --text: #f1f1f1; --muted: #a0a4ab; --line: #3a3e46;
+        --accent: #5b94f0; --accent-text: #0f1115; --stop: #f06a6a; }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; background: var(--bg); color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang TC", "Noto Sans TC", sans-serif;
+      padding: calc(12px + env(safe-area-inset-top)) 16px calc(24px + env(safe-area-inset-bottom));
+    }
+    main { max-width: 560px; margin: 0 auto; display: flex; flex-direction: column; gap: 14px; }
+    h1 { font-size: 26px; margin: 4px 0; }
+    p.lead { color: var(--muted); margin: 0; font-size: 16px; line-height: 1.5; }
+    .card { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: 16px; }
+    .card h2 { font-size: 18px; margin: 0 0 10px; }
+    .readout { text-align: center; }
+    .readout .hz { font-size: 48px; font-weight: 800; font-variant-numeric: tabular-nums; }
+    .readout .note { font-size: 22px; color: var(--muted); }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    select, input[type=number] {
+      font: inherit; font-size: 20px; min-height: 52px; padding: 0 12px; border-radius: 12px;
+      border: 2px solid var(--line); background: var(--bg); color: var(--text); flex: 1; min-width: 0;
+    }
+    button {
+      font: inherit; font-size: 18px; font-weight: 600; min-height: 52px; padding: 0 14px;
+      border-radius: 12px; border: 2px solid var(--line); background: var(--bg); color: var(--text);
+      cursor: pointer; touch-action: manipulation; flex: 1;
+    }
+    .row.tight button { font-size: 16px; padding: 0 4px; white-space: nowrap; }
+    input[type=range] { width: 100%; }
+    label.small { font-size: 15px; color: var(--muted); }
+    #play { background: var(--accent); color: var(--accent-text); border: none; font-size: 26px; min-height: 76px; }
+    #play.playing { background: var(--stop); }
+  </style>
+</head>
+<body>
+<main>
+  <h1>測試音產生器</h1>
+  <p class="lead">用這台裝置播放指定的音，另一台裝置開調音器來聽，確認顯示是否正確。</p>
+
+  <div class="card readout">
+    <div class="hz"><span id="hz">440.00</span> Hz</div>
+    <div class="note" id="note">A4 / La4，0 音分</div>
+  </div>
+
+  <button id="play">▶︎ 播放</button>
+
+  <div class="card">
+    <h2>選音</h2>
+    <div class="row">
+      <select id="pc" aria-label="音名"></select>
+      <select id="oct" aria-label="八度"></select>
+    </div>
+    <div class="row tight" style="margin-top:8px">
+      <button data-semi="-12">−八度</button>
+      <button data-semi="-1">−半音</button>
+      <button data-semi="1">+半音</button>
+      <button data-semi="12">+八度</button>
+    </div>
+    <p style="margin:12px 0 4px"><label class="small" for="cents">偏移：<span id="cents-val">0</span> 音分</label></p>
+    <input type="range" id="cents" min="-50" max="50" step="1" value="0">
+    <div class="row">
+      <button data-cents="-5">−5 音分</button>
+      <button data-cents="0">歸零</button>
+      <button data-cents="5">+5 音分</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>直接輸入頻率</h2>
+    <div class="row">
+      <input type="number" id="freq-input" min="20" max="4000" step="0.01" inputmode="decimal" placeholder="例如 82.41">
+      <button id="freq-set">套用</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>音色與設定</h2>
+    <div class="row">
+      <select id="wave" aria-label="音色">
+        <option value="sine">純音（正弦波）</option>
+        <option value="rich">含泛音（第二泛音較強）</option>
+        <option value="weak">弱基頻（模擬男聲）</option>
+      </select>
+    </div>
+    <p style="margin:12px 0 4px"><label class="small" for="vol">音量</label></p>
+    <input type="range" id="vol" min="0" max="1" step="0.01" value="0.3">
+    <div class="row" style="margin-top:8px">
+      <label class="small" for="a4">A4 基準</label>
+      <input type="number" id="a4" min="430" max="446" step="1" value="440">
+    </div>
+  </div>
+</main>
+
+<script type="module">
+  import { NOTE_NAMES } from '../js/pitch.js';
+  import { noteLabels, SOLFEGE } from '../js/notation.js';
+
+  const $ = (id) => document.getElementById(id);
+  const state = { midi: 69, cents: 0, freqOverride: null };
+  let ctx = null, osc = null, gain = null;
+
+  NOTE_NAMES.forEach((n, i) => $('pc').add(new Option(`${n} / ${SOLFEGE[i]}`, i)));
+  for (let o = 1; o <= 7; o++) $('oct').add(new Option(`第 ${o} 八度`, o));
+
+  const a4 = () => Math.min(446, Math.max(430, Number($('a4').value) || 440));
+
+  function currentFreq() {
+    if (state.freqOverride) return state.freqOverride;
+    return a4() * 2 ** ((state.midi - 69 + state.cents / 100) / 12);
+  }
+
+  function render() {
+    const f = currentFreq();
+    $('hz').textContent = f.toFixed(2);
+    const midiF = 69 + 12 * Math.log2(f / a4());
+    const midi = Math.round(midiF);
+    const c = Math.round((midiF - midi) * 100);
+    const l = noteLabels(midi);
+    $('note').textContent = `${l.letter}${l.octave} / ${l.solfege}${l.octave}，${c > 0 ? '+' : ''}${c} 音分`;
+    $('pc').value = ((midi % 12) + 12) % 12;
+    $('oct').value = l.octave;
+    $('cents').value = state.freqOverride ? c : state.cents;
+    $('cents-val').textContent = state.freqOverride ? c : state.cents;
+    if (osc) osc.frequency.setTargetAtTime(f, ctx.currentTime, 0.01);
+  }
+
+  function setMidi(m) {
+    state.midi = Math.min(108, Math.max(24, m));
+    state.freqOverride = null;
+    render();
+  }
+
+  function makeWave(type) {
+    if (type === 'sine') return null;
+    const amps = type === 'rich'
+      ? [0, 0.4, 1, 0.6, 0.4, 0.3, 0.2]            // 第二泛音比基頻強
+      : [0, 0.12, 1, 0.8, 0.6, 0.4, 0.3, 0.2, 0.15]; // 基頻很弱
+    const real = new Float32Array(amps.length);
+    return ctx.createPeriodicWave(real, new Float32Array(amps));
+  }
+
+  function applyWave() {
+    if (!osc) return;
+    const w = makeWave($('wave').value);
+    if (w) osc.setPeriodicWave(w); else osc.type = 'sine';
+  }
+
+  function play() {
+    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
+    ctx.resume();
+    osc = ctx.createOscillator();
+    gain = ctx.createGain();
+    gain.gain.value = 0;
+    gain.gain.setTargetAtTime(Number($('vol').value), ctx.currentTime, 0.02);
+    osc.frequency.value = currentFreq();
+    applyWave();
+    osc.connect(gain).connect(ctx.destination);
+    osc.start();
+    $('play').textContent = '■ 停止';
+    $('play').classList.add('playing');
+  }
+
+  function stop() {
+    if (!osc) return;
+    const o = osc;
+    gain.gain.setTargetAtTime(0, ctx.currentTime, 0.02);
+    o.stop(ctx.currentTime + 0.15);
+    osc = null;
+    $('play').textContent = '▶︎ 播放';
+    $('play').classList.remove('playing');
+  }
+
+  $('play').addEventListener('click', () => (osc ? stop() : play()));
+  $('pc').addEventListener('change', () => setMidi((Number($('oct').value) + 1) * 12 + Number($('pc').value)));
+  $('oct').addEventListener('change', () => setMidi((Number($('oct').value) + 1) * 12 + Number($('pc').value)));
+  document.querySelectorAll('[data-semi]').forEach((b) =>
+    b.addEventListener('click', () => {
+      const base = state.freqOverride ? Math.round(69 + 12 * Math.log2(state.freqOverride / a4())) : state.midi;
+      setMidi(base + Number(b.dataset.semi));
+    }));
+  $('cents').addEventListener('input', () => { state.freqOverride = null; state.cents = Number($('cents').value); render(); });
+  document.querySelectorAll('[data-cents]').forEach((b) =>
+    b.addEventListener('click', () => {
+      state.freqOverride = null;
+      const d = Number(b.dataset.cents);
+      state.cents = d === 0 ? 0 : Math.min(50, Math.max(-50, state.cents + d));
+      render();
+    }));
+  $('freq-set').addEventListener('click', () => {
+    const f = Number($('freq-input').value);
+    if (f >= 20 && f <= 4000) { state.freqOverride = f; render(); }
+  });
+  $('wave').addEventListener('change', applyWave);
+  $('vol').addEventListener('input', () => { if (gain) gain.gain.setTargetAtTime(Number($('vol').value), ctx.currentTime, 0.02); });
+  $('a4').addEventListener('change', render);
+
+  render();
+</script>
+</body>
+</html>

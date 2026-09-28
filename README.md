@@ -5,10 +5,15 @@
 ## 進度
 
 - [x] 階段 1：偵測引擎（`js/pitch.js`）＋自動測試（`tests/pitch.test.js`）
-- [ ] 階段 2：樂器調音器畫面
+- [x] 階段 2：樂器調音器畫面（含 `tools/test-tone.html` 測試音產生器）— 待手機實測驗收
 - [ ] 階段 3：人聲模式基本版
 - [ ] 階段 4：音高軌跡＋目標音＋參考音
 - [ ] 階段 5：PWA＋部署
+
+## 網址
+
+- App：https://scott-tw.github.io/tuner/
+- 測試音產生器：https://scott-tw.github.io/tuner/tools/test-tone.html
 
 ## 執行測試
 
