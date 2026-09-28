@@ -165,6 +165,20 @@ button {
 }
 .hint { color: var(--muted); font-size: 16px; margin: 12px 0 0; line-height: 1.5; }
 
+/* 新版本提示、版本號 */
+.update-banner {
+  width: 100%;
+  max-width: 420px;
+  min-height: 56px;
+  border-radius: 16px;
+  border: 2px solid var(--good);
+  background: var(--good-bg);
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 700;
+}
+.version { text-align: center; color: var(--muted); font-size: 15px; margin: 4px 0 0; }
+
 /* 麥克風檢查 */
 .chip.wide { width: 100%; }
 .mic-check { margin-top: 14px; }

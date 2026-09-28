@@ -3,7 +3,7 @@
 // 策略：先用快取（開啟快、離線可用），同時在背景向網路確認是否有新版，有就更新快取，
 // 下一次開啟時就是新版本。新增檔案時，請把它加進下面的 FILES，並把 CACHE 的版本號加一。
 
-const CACHE = 'tuner-v1';
+const CACHE = 'tuner-v2';
 const FILES = [
   './',
   'index.html',
@@ -38,6 +38,15 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+// 用 ETag／Last-Modified 判斷檔案是否有新版
+const versionTag = (res) => res.headers.get('etag') || res.headers.get('last-modified') || '';
+
+// 背景下載到新版檔案時通知畫面（畫面會顯示「點這裡更新」）
+async function notifyUpdated() {
+  const clients = await self.clients.matchAll({ type: 'window' });
+  clients.forEach((c) => c.postMessage({ type: 'updated' }));
+}
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
@@ -49,7 +58,10 @@ self.addEventListener('fetch', (event) => {
       const cached = await cache.match(key);
       const update = fetch(req, { cache: 'no-cache' })
         .then((res) => {
-          if (res.ok) cache.put(key, res.clone());
+          if (res.ok) {
+            cache.put(key, res.clone());
+            if (cached && versionTag(res) !== versionTag(cached)) notifyUpdated();
+          }
           return res;
         })
         .catch(() => null);

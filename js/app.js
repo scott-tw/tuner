@@ -11,6 +11,9 @@ import {
 
 const $ = (id) => document.getElementById(id);
 
+// 每次發布新版時更新（顯示在設定頁與麥克風檢查，用來確認手機上跑的是哪一版）
+const APP_VERSION = '2026.09.29';
+
 // ---------- 設定（localStorage，讀寫都要 try/catch） ----------
 
 const SETTINGS_KEY = 'tuner-settings';
@@ -622,6 +625,7 @@ function renderCheck(now) {
   const CTX = { running: '✅ 運作中', suspended: '⚠️ 暫停', interrupted: '⚠️ 被中斷', closed: '❌ 已關閉', none: '未啟動' };
   const TRACK = { live: '✅ 已開啟', ended: '❌ 已關閉', none: '未開啟' };
   const rows = [
+    ['版本', APP_VERSION],
     ['使用方式', isStandalone() ? '已安裝的 App' : '瀏覽器網頁'],
     ['瀏覽器', browserName()],
     ['麥克風權限', PERM[checkPermission] || checkPermission],
@@ -652,6 +656,7 @@ function renderCheck(now) {
 
 loadSettings();
 renderSettings();
+$('app-version').textContent = APP_VERSION;
 history.replaceState({ screen: 'home' }, '');
 
 // 離線使用：註冊 Service Worker（不支援時略過）
@@ -659,4 +664,9 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('sw.js').catch(() => { /* 略過 */ });
   });
+  // 背景下載到新版時，在首頁顯示「點這裡更新」
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'updated') $('update-banner').hidden = false;
+  });
 }
+$('update-banner').addEventListener('click', () => location.reload());
