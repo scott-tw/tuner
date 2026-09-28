@@ -39,7 +39,8 @@ export function freqToNote(freq, a4 = 440) {
   return { midi, note, octave, cents };
 }
 
-function rms(buf) {
+// 音量（均方根）
+export function rms(buf) {
   let s = 0;
   for (let i = 0; i < buf.length; i++) s += buf[i] * buf[i];
   return Math.sqrt(s / buf.length);
@@ -207,6 +208,28 @@ export function createOctaveGuard({ holdMs = 120, resetMs = 500, tolerance = 0.5
       pending = null;
       stable = midi;
       return midi;
+    },
+  };
+}
+
+// 自動音量門檻：依背景噪音調整「多小聲算無聲」
+// 不同手機收音音量差很多（例如三星瀏覽器安裝的 App 收音特別小聲），固定門檻會讓小聲的手機要很大聲才偵測得到。
+// 背景噪音只從「沒有偵測到音高」的格子估計，唱歌時不會把門檻拉高。
+// 門檻 = 背景噪音 × ratio，並限制在 [min, max] 之間。
+export function createNoiseGate({ initial = 0.001, ratio = 2.5, min = 0.0015, max = 0.02 } = {}) {
+  let floor = initial;
+  return {
+    get threshold() {
+      return Math.min(max, Math.max(min, floor * ratio));
+    },
+    // level：這一格的音量；voiced：這一格是否偵測到音高
+    update(level, voiced) {
+      if (voiced) return;
+      // 往下快速追（安靜下來時很快變靈敏），往上慢慢追（偶爾的雜音不會讓門檻暴衝）
+      floor += (level - floor) * (level < floor ? 0.3 : 0.02);
+    },
+    reset() {
+      floor = initial;
     },
   };
 }

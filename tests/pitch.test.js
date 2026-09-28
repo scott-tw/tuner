@@ -3,7 +3,7 @@
 
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { detectPitch, analyze, freqToNote, PRESETS, createOctaveGuard } from '../js/pitch.js';
+import { detectPitch, analyze, freqToNote, PRESETS, createOctaveGuard, createNoiseGate, rms } from '../js/pitch.js';
 
 const SAMPLE_RATES = [44100, 48000];
 const N = 4096;
@@ -383,4 +383,59 @@ test('連續性檢查：非八度的跳音立即採信；靜默後重新開始',
   assert.equal(guard.update(71, 99), 71);   // 大七度（11 半音以內）：立即
   assert.equal(guard.update(null, 132), null);
   assert.equal(guard.update(59, 800), 59);  // 靜默 700 ms 後，低八度的新句子直接採信
+});
+
+// ---------- 自動音量門檻 ----------
+
+// 模擬一段「背景噪音 → 唱歌 → 背景噪音」，回傳唱歌時偵測到音高的比例與噪音時誤報的比例
+function gateRun({ noiseRms, voicePeak, sr = 48000, seed = 20 }) {
+  const rng = makeRng(seed);
+  const gate = createNoiseGate();
+  const noise = () => {
+    const buf = new Float32Array(N);
+    for (let i = 0; i < N; i++) buf[i] = noiseRms * gauss(rng);
+    return buf;
+  };
+  const frame = (buf) => {
+    const r = detectPitch(buf, sr, { ...PRESETS.female, rmsThreshold: gate.threshold });
+    gate.update(rms(buf), !!r);
+    return r;
+  };
+  let falseHits = 0, hits = 0;
+  for (let i = 0; i < 60; i++) if (frame(noise())) falseHits++;          // 2 秒背景
+  for (let i = 0; i < 150; i++) {                                          // 5 秒唱歌
+    const { buf } = synth({ sr, f0: midiToFreq(67), amps: [1, 0.6, 0.3], vibCents: 20, vibRate: 5.5,
+      vibPhase: i, snr: Infinity, rng, peak: voicePeak });
+    const n = noise();
+    for (let j = 0; j < N; j++) buf[j] += n[j];
+    if (frame(buf)) hits++;
+  }
+  for (let i = 0; i < 60; i++) if (frame(noise())) falseHits++;          // 再 2 秒背景
+  return { hitRate: hits / 150, falseRate: falseHits / 120, threshold: gate.threshold };
+}
+
+test('自動音量門檻：收音很小聲的手機也偵測得到', () => {
+  // 舊的固定門檻 0.01 下，峰值 0.008 的歌聲（均方根約 0.004）完全偵測不到
+  const quiet = gateRun({ noiseRms: 0.0003, voicePeak: 0.008 });
+  report.push({ 情況: '小聲收音（峰值 0.008）', 次數: 150, '平均誤差(音分)': '-', '最大誤差(音分)': '-',
+    八度正確率: '-', 備註: `偵測率 ${(quiet.hitRate * 100).toFixed(1)}%，背景誤報 ${(quiet.falseRate * 100).toFixed(1)}%` });
+  assert.ok(quiet.hitRate >= 0.95, `偵測率 ${quiet.hitRate}`);
+  assert.equal(quiet.falseRate, 0);
+});
+
+test('自動音量門檻：吵雜環境門檻會提高，唱歌時不會被拉高', () => {
+  const noisy = gateRun({ noiseRms: 0.006, voicePeak: 0.3 });
+  assert.ok(noisy.hitRate >= 0.95, `偵測率 ${noisy.hitRate}`);
+  assert.equal(noisy.falseRate, 0);
+  assert.ok(noisy.threshold > 0.01, `吵雜時門檻 ${noisy.threshold}`);
+
+  const gate = createNoiseGate();
+  for (let i = 0; i < 300; i++) gate.update(0.2, true);   // 一直在唱歌：門檻不變
+  assert.equal(gate.threshold, createNoiseGate().threshold);
+  // 一開始就有小聲的聲音（樂器正在響）也要偵測得到
+  const { buf } = synth({ sr: 48000, f0: 196, amps: [1, 0.5], peak: 0.008 });
+  assert.ok(detectPitch(buf, 48000, { ...PRESETS.male, rmsThreshold: createNoiseGate().threshold }));
+  assert.equal(gate.threshold, createNoiseGate().threshold);
+  for (let i = 0; i < 30; i++) gate.update(0.0001, false); // 安靜的房間：門檻降到下限
+  assert.equal(gate.threshold, 0.0015);
 });

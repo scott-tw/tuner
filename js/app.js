@@ -1,6 +1,6 @@
 // 畫面切換、設定、樂器調音與人聲音高 UI
 
-import { detectPitch, PRESETS, createOctaveGuard } from './pitch.js';
+import { detectPitch, PRESETS, createOctaveGuard, createNoiseGate, rms } from './pitch.js';
 import { noteLabels, staffSVG } from './notation.js';
 import { createPitchGraph } from './graph.js';
 import {
@@ -12,7 +12,7 @@ import {
 const $ = (id) => document.getElementById(id);
 
 // 每次發布新版時更新（顯示在設定頁與麥克風檢查，用來確認手機上跑的是哪一版）
-const APP_VERSION = '2026.09.29';
+const APP_VERSION = '2026.09.29-2';
 
 // ---------- 設定（localStorage，讀寫都要 try/catch） ----------
 
@@ -229,6 +229,7 @@ let lastAnalysis = 0;
 let lastHeard = 0;
 let recent = [];          // 最近幾格的 midi（小數）
 let guard = createOctaveGuard();
+const gate = createNoiseGate(); // 自動音量門檻（依背景噪音調整）
 let targetCents = 0;
 let shownCents = 0;
 let hasNote = false;
@@ -291,6 +292,7 @@ function stopListening() {
 function resetDetection() {
   recent = [];
   guard.reset();
+  gate.reset();
   graph.clear();
   lowFrames = [];
   if (ui) resetDisplay();
@@ -318,7 +320,8 @@ function analyzeFrame(now) {
   if (!checkSilence(buf, now)) return;
   // 短的參考音播放中先暫停偵測，避免把參考音當成歌聲
   if (mode === MODES.voice && isShortReferencePlaying()) return;
-  const r = detectPitch(buf, sr, mode.preset());
+  const r = detectPitch(buf, sr, { ...mode.preset(), rmsThreshold: gate.threshold });
+  gate.update(rms(buf), !!r);
   if (mode === MODES.voice && settings.voiceType === 'child') checkVoiceChange(buf, sr, now);
 
   if (r) {
@@ -436,7 +439,7 @@ const LOW_WINDOW_MS = 2000;
 // 另外用男聲範圍偵測一次（童聲範圍抓不到那麼低的音），最近 2 秒大多低於 E3 就提示
 function checkVoiceChange(buf, sr, now) {
   if (!$('voice-change-hint').hidden || checkVoiceChange.dismissed) return;
-  const r = detectPitch(buf, sr, PRESETS.male);
+  const r = detectPitch(buf, sr, { ...PRESETS.male, rmsThreshold: gate.threshold });
   if (r) lowFrames.push({ t: now, low: 69 + 12 * Math.log2(r.freq / settings.a4) < E3 - 0.5 });
   while (lowFrames.length && now - lowFrames[0].t > LOW_WINDOW_MS) lowFrames.shift();
   const low = lowFrames.filter((f) => f.low).length;
@@ -551,6 +554,7 @@ let checkSignal = false;  // 至少有一點點聲音（不是完全無聲）
 let checkFallback = false;
 let checkPermission = 'unknown';
 let checkError = null;
+let checkPeakRms = 0;
 
 function browserName() {
   const ua = navigator.userAgent;
@@ -572,7 +576,7 @@ $('btn-mic-check').addEventListener('click', () => {
 
 function startMicCheck({ raw }) {
   checking = true;
-  if (raw) { checkFallback = false; checkHeard = false; checkSignal = false; }
+  if (raw) { checkFallback = false; checkHeard = false; checkSignal = false; checkPeakRms = 0; }
   checkError = null;
   checkStart = performance.now();
   $('btn-mic-check').textContent = '停止檢查';
@@ -604,10 +608,13 @@ function checkLoop(now) {
   if (!buf) return;
   let sum = 0, peak = 0;
   for (let i = 0; i < buf.length; i++) { sum += buf[i] * buf[i]; peak = Math.max(peak, Math.abs(buf[i])); }
-  const rms = Math.sqrt(sum / buf.length);
+  const level = Math.sqrt(sum / buf.length);
   if (peak > 1e-6) checkSignal = true;
-  if (rms > 0.01) checkHeard = true;
-  $('mic-level').style.width = `${Math.min(100, rms * 500)}%`;
+  if (level > 0.003) checkHeard = true;
+  checkPeakRms = Math.max(checkPeakRms * 0.97, level);
+  // 音量條用分貝顯示（−70 dB 到 0 dB），小聲的手機也看得到變化
+  const db = level > 0 ? 20 * Math.log10(level) : -100;
+  $('mic-level').style.width = `${Math.max(0, Math.min(100, ((db + 70) / 70) * 100))}%`;
 
   // 原始聲音收不到任何東西，自動改用一般收音方式再試
   if (!checkSignal && !checkFallback && now - checkStart > SILENT_MS) {
@@ -633,6 +640,7 @@ function renderCheck(now) {
     ['麥克風', (TRACK[d.trackState] || d.trackState) + (d.trackMuted ? '（⚠️ 被系統靜音）' : '')],
     ['收音方式', d.raw ? '原始聲音' : '一般（含降噪）'],
     ['取樣率', d.sampleRate ? `${d.sampleRate} Hz` : '–'],
+    ['最近音量', checkPeakRms > 0 ? `${(20 * Math.log10(checkPeakRms)).toFixed(0)} dB` : '–'],
     ['裝置', d.trackLabel || '–'],
   ];
   $('mic-info').innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
