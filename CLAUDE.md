@@ -14,7 +14,7 @@
 - `js/pitch.js` 必須是純函式、不碰 DOM，才能在 Node 中測試。
 - sampleRate 一律從 AudioContext 取得，不可寫死 44100 或 48000。
 - 啟動音訊與麥克風必須在使用者點擊的 handler 內完成（iOS Safari 限制）。
-- 每次修改偵測引擎後都要執行 `node --test tests/`，全部通過才能 commit。
+- 每次修改偵測引擎後都要執行 `node --test`（會自動找到 tests/ 裡的測試檔），全部通過才能 commit。
 - 一次只做一個階段（見 SPEC.md 第 11 節），不要跳階段。
 - 每個階段完成後 git commit，訊息用中文描述。
 - 不確定的需求先問，不要自行假設。
