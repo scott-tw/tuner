@@ -50,7 +50,7 @@
 - [x] 階段 2：樂器調音器畫面（含 `tools/test-tone.html` 測試音產生器）
 - [x] 階段 3：人聲模式基本版（童聲／女聲／男聲、三層八度防護、五線譜）
 - [x] 階段 4：音高軌跡＋目標音＋參考音＋變聲期提示
-- [x] 階段 5：PWA＋部署（manifest、Service Worker 離線快取、App 圖示）— 待實機驗收
+- [x] 階段 5：PWA＋部署（manifest、Service Worker 離線快取、App 圖示）
 
 ## 網址
 
