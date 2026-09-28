@@ -2,8 +2,10 @@
 
 import { detectPitch, PRESETS, createOctaveGuard } from './pitch.js';
 import { noteLabels, staffSVG } from './notation.js';
+import { createPitchGraph } from './graph.js';
 import {
   startAudio, stopAudio, getSampleRate, readBuffer, needsResume, resumeAudio, onStateChange,
+  playReference, stopReference, isShortReferencePlaying, isReferencePlaying,
 } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
@@ -47,6 +49,7 @@ function renderSettings() {
     b.classList.toggle('selected', b.dataset.clef === settings.maleClef);
   });
   $('clef-switch').hidden = settings.voiceType !== 'male';
+  renderTargetOptions();
 }
 
 document.querySelectorAll('[data-a4]').forEach((b) => b.addEventListener('click', () => {
@@ -63,6 +66,10 @@ document.querySelectorAll('[data-naming]').forEach((b) => b.addEventListener('cl
 }));
 document.querySelectorAll('[data-voice]').forEach((b) => b.addEventListener('click', () => {
   settings.voiceType = b.dataset.voice;
+  target = null;
+  stopRef();
+  $('voice-change-hint').hidden = true;
+  checkVoiceChange.dismissed = false;
   saveSettings(); renderSettings();
   if (mode === MODES.voice) resetDetection();
 }));
@@ -71,6 +78,76 @@ document.querySelectorAll('[data-clef]').forEach((b) => b.addEventListener('clic
   saveSettings(); renderSettings();
   renderStaff(lastMidi, lastState);
 }));
+
+// ---------- 目標音與參考音 ----------
+
+// 各聲音類型的常用音域（目標音選單）
+const TARGET_RANGES = { child: [57, 77], female: [55, 81], male: [40, 64] }; // A3–F5、G3–A5、E2–E4
+
+let target = null; // 指定的目標音（midi 整數）；null = 自動（最接近的音）
+
+function renderTargetOptions() {
+  const sel = $('target-select');
+  const [lo, hi] = TARGET_RANGES[settings.voiceType];
+  sel.innerHTML = '';
+  sel.add(new Option('自動（最接近的音）', 'auto'));
+  for (let m = hi; m >= lo; m--) {
+    const l = noteLabels(m);
+    const text = settings.naming === 'letter' ? `${l.letter}${l.octave}`
+      : settings.naming === 'solfege' ? `${l.solfege}${l.octave}`
+        : `${l.letter}${l.octave}　${l.solfege}${l.octave}`;
+    sel.add(new Option(text, m));
+  }
+  if (target != null && (target < lo || target > hi)) target = null;
+  sel.value = target == null ? 'auto' : String(target);
+}
+
+$('target-select').addEventListener('change', (e) => {
+  target = e.target.value === 'auto' ? null : Number(e.target.value);
+  if (isReferencePlaying()) startRef(); // 換目標時，正在播的參考音跟著換
+  renderStaff(lastMidi, lastState);
+});
+
+const midiToFreq = (m) => settings.a4 * 2 ** ((m - 69) / 12);
+const sustainOn = () => $('btn-sustain').getAttribute('aria-pressed') === 'true';
+
+function refMidi() {
+  if (target != null) return target;
+  return lastMidi; // 自動模式：播最近唱的那個音
+}
+
+function startRef() {
+  const m = refMidi();
+  if (m == null) {
+    ui.hint.textContent = '請先選目標音，或先唱一個音';
+    return;
+  }
+  playReference(midiToFreq(m), { sustain: sustainOn(), onEnd: renderRefButton });
+  renderRefButton();
+}
+
+function stopRef() {
+  stopReference();
+  renderRefButton();
+}
+
+function renderRefButton() {
+  const playing = isReferencePlaying();
+  const b = $('btn-ref');
+  b.classList.toggle('playing', playing && sustainOn());
+  b.textContent = playing && sustainOn() ? '■ 停止參考音' : '🔊 參考音';
+}
+
+$('btn-ref').addEventListener('click', () => {
+  if (isReferencePlaying() && sustainOn()) stopRef();
+  else startRef();
+});
+
+$('btn-sustain').addEventListener('click', () => {
+  const on = !sustainOn();
+  $('btn-sustain').setAttribute('aria-pressed', String(on));
+  if (isReferencePlaying()) stopRef();
+});
 
 // ---------- 兩種偵測模式 ----------
 
@@ -153,6 +230,8 @@ let hasNote = false;
 let lastMidi = null;
 let lastState = 'idle';
 let wakeLock = null;
+const graph = createPitchGraph($('pitch-graph'));
+let lowFrames = [];       // 童聲模式：最近 2 秒內是否唱得比 E3 低
 
 function bindUI(screenId) {
   const root = $(screenId);
@@ -193,6 +272,7 @@ function stopListening() {
   mode = null;
   cancelAnimationFrame(rafId);
   stopAudio();
+  renderRefButton();
   releaseWakeLock();
   $('resume-overlay').hidden = true;
   document.body.classList.remove('in-tune');
@@ -201,6 +281,8 @@ function stopListening() {
 function resetDetection() {
   recent = [];
   guard.reset();
+  graph.clear();
+  lowFrames = [];
   if (ui) resetDisplay();
 }
 
@@ -210,6 +292,7 @@ function loop(now) {
     lastAnalysis = now;
     analyzeFrame(now);
   }
+  if (mode === MODES.voice) graph.draw(now, target, settings.naming);
   if (ui.needle) {
     // 指針緩動
     shownCents += (targetCents - shownCents) * 0.25;
@@ -222,7 +305,10 @@ function analyzeFrame(now) {
   const buf = readBuffer();
   const sr = getSampleRate();
   if (!buf || !sr) return;
+  // 短的參考音播放中先暫停偵測，避免把參考音當成歌聲
+  if (mode === MODES.voice && isShortReferencePlaying()) return;
   const r = detectPitch(buf, sr, mode.preset());
+  if (mode === MODES.voice && settings.voiceType === 'child') checkVoiceChange(buf, sr, now);
 
   if (r) {
     let midi = 69 + 12 * Math.log2(r.freq / settings.a4);
@@ -231,7 +317,9 @@ function analyzeFrame(now) {
     lastHeard = now;
     recent.push(midi);
     if (recent.length > mode.medianSize) recent.shift();
-    showNote(median(recent));
+    const m = median(recent);
+    if (mode === MODES.voice) graph.push(now, m);
+    showNote(m);
   } else if (hasNote && now - lastHeard > HOLD_MS) {
     fadeOut();
   }
@@ -255,14 +343,25 @@ function showNote(midiFloat) {
   ui.sub.textContent = settings.naming === 'both' ? `${label.solfege}${label.octave}` : ' ';
   ui.display.classList.remove('idle');
 
-  const c = Math.round(cents);
-  ui.cents.textContent = `${c > 0 ? '+' : c < 0 ? '−' : ''}${Math.abs(c)} 音分`;
   ui.freq.textContent = `${freq.toFixed(1)} Hz`;
   targetCents = cents;
 
-  const inTune = Math.abs(cents) <= mode.inTune;
+  // 有指定目標音時，和目標比較；否則和最接近的音比較
+  const useTarget = mode === MODES.voice && target != null;
+  const diff = useTarget ? (midiFloat - target) * 100 : cents;
+  const c = Math.round(diff);
+  const sign = c > 0 ? '+' : c < 0 ? '−' : '';
+  if (!useTarget) {
+    ui.cents.textContent = `${sign}${Math.abs(c)} 音分`;
+  } else if (Math.abs(c) < 100) {
+    ui.cents.textContent = `比目標${c < 0 ? '低' : c > 0 ? '高' : ''} ${Math.abs(c)} 音分`;
+  } else {
+    ui.cents.textContent = `比目標${c < 0 ? '低' : '高'} ${Math.round(Math.abs(c) / 100)} 個半音`;
+  }
+
+  const inTune = Math.abs(diff) <= mode.inTune;
   document.body.classList.toggle('in-tune', inTune);
-  ui.hint.textContent = inTune ? mode.goodHint : cents < 0 ? '偏低，再高一點 ↑' : '偏高，再低一點 ↓';
+  ui.hint.textContent = inTune ? mode.goodHint : diff < 0 ? '偏低，再高一點 ↑' : '偏高，再低一點 ↓';
   if (mode === MODES.voice) renderStaff(midi, inTune ? 'good' : 'off');
 }
 
@@ -287,16 +386,39 @@ function resetDisplay() {
   if (ui.root.id === 'voice') renderStaff(null, 'idle');
 }
 
-// 只在音或狀態改變時重畫五線譜
+// 只在音、狀態、譜號或目標音改變時重畫五線譜
 function renderStaff(midi, state) {
   const clef = clefFor();
-  const key = `${midi}|${state}|${clef}`;
+  const key = `${midi}|${state}|${clef}|${target}`;
   if (renderStaff.key === key) return;
   renderStaff.key = key;
   lastMidi = midi;
   lastState = state;
-  $('staff').innerHTML = staffSVG(midi, clef, { state });
+  $('staff').innerHTML = staffSVG(midi, clef, { state, target });
 }
+
+// ---------- 童聲模式：變聲期提示 ----------
+
+const E3 = 52;
+const LOW_WINDOW_MS = 2000;
+
+// 另外用男聲範圍偵測一次（童聲範圍抓不到那麼低的音），最近 2 秒大多低於 E3 就提示
+function checkVoiceChange(buf, sr, now) {
+  if (!$('voice-change-hint').hidden || checkVoiceChange.dismissed) return;
+  const r = detectPitch(buf, sr, PRESETS.male);
+  if (r) lowFrames.push({ t: now, low: 69 + 12 * Math.log2(r.freq / settings.a4) < E3 - 0.5 });
+  while (lowFrames.length && now - lowFrames[0].t > LOW_WINDOW_MS) lowFrames.shift();
+  const low = lowFrames.filter((f) => f.low).length;
+  if (lowFrames.length >= 30 && low / lowFrames.length >= 0.7) $('voice-change-hint').hidden = false;
+}
+
+$('btn-to-male').addEventListener('click', () => {
+  document.querySelector('[data-voice="male"]').click();
+});
+$('btn-dismiss-hint').addEventListener('click', () => {
+  $('voice-change-hint').hidden = true;
+  checkVoiceChange.dismissed = true; // 這次使用期間不再提示
+});
 
 // ---------- 麥克風錯誤說明 ----------
 

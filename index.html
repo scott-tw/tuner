@@ -103,22 +103,45 @@
       <button data-voice="male">男聲</button>
     </div>
 
+    <!-- 童聲模式：連續唱低於 E3 時的提示 -->
+    <div class="notice" id="voice-change-hint" hidden>
+      <p>聽起來你的聲音比較低沉，可能正在變聲期喔！可以改選「男聲」試試看 😊</p>
+      <div class="notice-btns">
+        <button id="btn-to-male">改選男聲</button>
+        <button id="btn-dismiss-hint">知道了</button>
+      </div>
+    </div>
+
     <div class="tuner voice-tuner">
-      <div class="note-display idle">
-        <div class="note-main"><span class="note-name">–</span><span class="note-oct"></span></div>
-        <div class="note-sub">&nbsp;</div>
+      <div class="voice-top">
+        <div class="note-display idle">
+          <div class="note-main"><span class="note-name">–</span><span class="note-oct"></span></div>
+          <div class="note-sub">&nbsp;</div>
+        </div>
+        <div class="staff" id="staff"></div>
       </div>
 
       <div class="cents">&nbsp;</div>
+      <p class="tune-hint">請唱一個長音</p>
 
-      <div class="staff" id="staff"></div>
+      <canvas class="pitch-graph" id="pitch-graph" role="img" aria-label="最近 10 秒的音高軌跡"></canvas>
+
+      <div class="voice-controls">
+        <label class="target-pick">
+          <span>目標音</span>
+          <select id="target-select"></select>
+        </label>
+        <div class="ref-row">
+          <button class="ref-btn" id="btn-ref">🔊 參考音</button>
+          <button class="toggle" id="btn-sustain" aria-pressed="false">持續長音</button>
+        </div>
+      </div>
 
       <div class="clef-switch" id="clef-switch" hidden>
         <button data-clef="bass">低音譜號</button>
         <button data-clef="treble8vb">高音譜號（低八度）</button>
       </div>
 
-      <p class="tune-hint">請唱一個長音</p>
       <p class="freq">&nbsp;</p>
     </div>
   </section>

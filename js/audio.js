@@ -62,6 +62,7 @@ function stopMic() {
 
 // 離開偵測畫面：關掉麥克風，並暫停 AudioContext 省電
 export function stopAudio() {
+  stopReference();
   stopMic();
   if (ctx && ctx.state === 'running') ctx.suspend();
 }
@@ -93,4 +94,69 @@ export function resumeAudio() {
 
 export function onStateChange(fn) {
   if (ctx) ctx.onstatechange = fn;
+}
+
+// ---------- 參考音 ----------
+// 短音：柔和鋼琴音色（自然衰減約 2 秒）；持續長音：管風琴音色（按停止才結束）
+
+let ref = null; // { oscs, master, sustain, endTime, onEnd }
+
+export function playReference(freq, { sustain = false, onEnd } = {}) {
+  if (!ctx) return;
+  stopReference();
+  const now = ctx.currentTime;
+  const master = ctx.createGain();
+  master.connect(ctx.destination);
+  const partials = sustain
+    ? [[1, 1], [2, 0.5], [3, 0.22], [4, 0.12]]                           // 管風琴
+    : [[1, 1], [2, 0.55], [3, 0.3], [4, 0.16], [5, 0.1], [6, 0.06]];     // 鋼琴
+  const oscs = partials.filter(([k]) => freq * k < ctx.sampleRate / 2).map(([k, a]) => {
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.frequency.value = freq * k;
+    g.gain.value = a;
+    if (!sustain) g.gain.setTargetAtTime(0, now + 0.01, 0.9 / k); // 高次泛音衰減較快
+    o.connect(g).connect(master);
+    o.start(now);
+    return o;
+  });
+
+  master.gain.setValueAtTime(0, now);
+  let endTime = Infinity;
+  if (sustain) {
+    master.gain.linearRampToValueAtTime(0.22, now + 0.08);
+  } else {
+    master.gain.linearRampToValueAtTime(0.3, now + 0.006);
+    master.gain.setTargetAtTime(0, now + 0.05, 0.6);
+    endTime = now + 2.2;
+    oscs.forEach((o) => o.stop(endTime));
+  }
+  const current = { oscs, master, sustain, endTime, onEnd };
+  ref = current;
+  if (!sustain) {
+    oscs[0].onended = () => {
+      if (ref === current) ref = null;
+      if (onEnd) onEnd();
+    };
+  }
+}
+
+export function stopReference() {
+  if (!ref || !ctx) return;
+  const { oscs, master, onEnd } = ref;
+  ref = null;
+  const now = ctx.currentTime;
+  master.gain.cancelScheduledValues(now);
+  master.gain.setTargetAtTime(0, now, 0.04);
+  oscs.forEach((o) => { o.onended = null; try { o.stop(now + 0.2); } catch { /* 已停止 */ } });
+  if (onEnd) onEnd();
+}
+
+// 短音播放中（此時暫停偵測，避免麥克風把參考音當成歌聲）
+export function isShortReferencePlaying() {
+  return !!ref && !ref.sustain && ctx.currentTime < ref.endTime;
+}
+
+export function isReferencePlaying() {
+  return !!ref;
 }

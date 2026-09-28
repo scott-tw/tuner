@@ -56,3 +56,10 @@ test('staffSVG 產生合法的 SVG 字串', () => {
   assert.equal((s.match(/class="staff-line"/g) || []).length, 5);
   assert.doesNotMatch(staffSVG(null, 'bass'), /ellipse/);
 });
+
+test('staffSVG 可同時畫目標音（空心）與唱出的音', () => {
+  const s = staffSVG(67, 'treble', { target: 69 });
+  assert.equal((s.match(/<ellipse/g) || []).length, 2);
+  assert.match(s, /class="target"/);
+  assert.equal((staffSVG(null, 'treble', { target: 69 }).match(/<ellipse/g) || []).length, 1);
+});

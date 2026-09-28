@@ -277,16 +277,100 @@ body.in-tune .needle { background: var(--good); }
 }
 .segmented button.selected { background: var(--accent); color: var(--accent-text); }
 
-.voice-tuner { gap: 4px; padding-top: 8px; justify-content: flex-start; }
-.voice-tuner .note-main { font-size: clamp(80px, 24vw, 150px); }
-.voice-tuner .note-sub { font-size: 28px; }
-
-.staff {
+.voice-tuner { gap: 6px; padding-top: 8px; justify-content: flex-start; }
+.voice-top {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
   width: 100%;
-  max-width: 340px;
+  max-width: 640px;
+}
+.voice-top .note-display { flex: 0 0 auto; min-width: 42%; }
+.voice-tuner .note-main { font-size: max(72px, min(19vw, 130px)); }
+.voice-tuner .note-sub { font-size: 24px; margin-top: 2px; }
+.voice-tuner .cents { font-size: 28px; min-height: 36px; }
+.voice-tuner .tune-hint { margin: 0; font-size: 22px; }
+
+.pitch-graph {
+  width: 100%;
+  max-width: 640px;
+  height: 160px;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  margin-top: 4px;
+}
+
+.voice-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+  max-width: 640px;
+}
+.target-pick {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 18px;
+  font-weight: 600;
+}
+.target-pick select {
+  flex: 1;
+  min-height: 52px;
+  font: inherit;
+  font-size: 20px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 2px solid var(--line);
+  background: var(--surface);
   color: var(--text);
 }
-.staff svg { display: block; width: 100%; height: auto; max-height: 36vh; }
+.ref-row { flex: 1 1 100%; display: flex; gap: 8px; }
+.ref-btn, .toggle {
+  min-height: 56px;
+  border-radius: 14px;
+  font-size: 20px;
+  font-weight: 700;
+}
+.ref-btn { flex: 2; border: none; background: var(--accent); color: var(--accent-text); }
+.ref-btn.playing { background: var(--warn); }
+.toggle { flex: 1; border: 2px solid var(--line); background: var(--surface); }
+.toggle[aria-pressed="true"] { border-color: var(--accent); background: var(--accent); color: var(--accent-text); }
+
+.notice {
+  margin: 10px 16px 0;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: var(--good-bg);
+  border: 2px solid var(--good);
+  font-size: 18px;
+  line-height: 1.5;
+  align-self: center;
+  max-width: 560px;
+}
+.notice p { margin: 0 0 10px; }
+.notice-btns { display: flex; gap: 8px; }
+.notice-btns button {
+  flex: 1;
+  min-height: 48px;
+  border-radius: 12px;
+  border: 2px solid var(--good);
+  background: var(--surface);
+  font-size: 18px;
+  font-weight: 700;
+}
+.notice-btns button:first-child { background: var(--good); color: #fff; }
+
+.staff {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 300px;
+  color: var(--text);
+}
+.staff svg { display: block; width: 100%; height: auto; max-height: 30vh; }
 .staff .staff-line, .staff .ledger { stroke: currentColor; stroke-width: 1.4; }
 .staff .clef { fill: currentColor; }
 .staff .clef-8 { fill: currentColor; font-size: 14px; font-weight: 700; }
@@ -294,6 +378,8 @@ body.in-tune .needle { background: var(--good); }
 .staff .note.good { fill: var(--good); }
 .staff .note.idle { opacity: 0.25; }
 .staff .sharp { font-size: 26px; font-weight: 700; }
+.staff .target { fill: none; stroke: var(--muted); stroke-width: 2.2; }
+.staff .target .sharp { fill: var(--muted); stroke: none; }
 
 .clef-switch { display: flex; gap: 8px; width: 100%; max-width: 420px; }
 .clef-switch button {

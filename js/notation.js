@@ -57,7 +57,8 @@ function glyph(d, x, lineY) {
 
 // 回傳整張五線譜的 SVG 字串。midi 為 null 時只畫譜。
 // options.state：'good'（準）/ 'off'（不準）/ 'idle'（淡出）
-export function staffSVG(midi, clef = 'treble', { state = 'off' } = {}) {
+// options.target：目標音（空心灰色音符，畫在唱出的音左邊），null 表示不畫
+export function staffSVG(midi, clef = 'treble', { state = 'off', target = null } = {}) {
   const [lo, hi] = POS_RANGE[clef];
   const H = (hi - lo) * HALF + PAD * 2;
   const y = (pos) => PAD + (hi - pos) * HALF;
@@ -69,18 +70,20 @@ export function staffSVG(midi, clef = 'treble', { state = 'off' } = {}) {
   parts.push(clef === 'bass' ? glyph(F_CLEF, 14, y(6)) : glyph(G_CLEF, 12, y(2)));
   if (clef === 'treble8vb') parts.push(`<text class="clef-8" x="33" y="${y(-5) + 5}" text-anchor="middle">8</text>`);
 
-  if (midi != null) {
-    const { pos, sharp } = staffPosition(midi, clef);
-    const cx = 170;
+  const note = (m, cx, cls) => {
+    const { pos, sharp } = staffPosition(m, clef);
     for (const p of ledgerLines(pos)) {
       parts.push(`<line class="ledger" x1="${cx - 17}" x2="${cx + 17}" y1="${y(p)}" y2="${y(p)}"/>`);
     }
     const cy = y(Math.max(lo, Math.min(hi, pos)));
-    parts.push(`<g class="note ${state}">`);
+    parts.push(`<g class="${cls}">`);
     if (sharp) parts.push(`<text class="sharp" x="${cx - 32}" y="${cy + 8}">♯</text>`);
     parts.push(`<ellipse cx="${cx}" cy="${cy}" rx="9.5" ry="6.8" transform="rotate(-20 ${cx} ${cy})"/>`);
     parts.push('</g>');
-  }
+  };
+
+  if (target != null) note(target, 120, 'target');
+  if (midi != null) note(midi, target != null ? 195 : 170, `note ${state}`);
 
   return `<svg viewBox="0 0 ${W} ${H}" xmlns="http://www.w3.org/2000/svg" role="img">${parts.join('')}</svg>`;
 }
