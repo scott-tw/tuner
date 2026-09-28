@@ -6,7 +6,7 @@
 
 - [x] 階段 1：偵測引擎（`js/pitch.js`）＋自動測試（`tests/pitch.test.js`）
 - [x] 階段 2：樂器調音器畫面（含 `tools/test-tone.html` 測試音產生器）
-- [x] 階段 3：人聲模式基本版（童聲／女聲／男聲、三層八度防護、五線譜）— 待實唱驗收
+- [x] 階段 3：人聲模式基本版（童聲／女聲／男聲、三層八度防護、五線譜）
 - [ ] 階段 4：音高軌跡＋目標音＋參考音
 - [ ] 階段 5：PWA＋部署
 
@@ -30,3 +30,7 @@ python3 -m http.server 8000
 ```
 
 再用瀏覽器開 http://localhost:8000。
+
+## 授權說明
+
+五線譜上的譜號外形取自 [Bravura](https://github.com/steinbergmedia/bravura) 樂譜字型（© Steinberg Media Technologies GmbH，SIL Open Font License 1.1）。
