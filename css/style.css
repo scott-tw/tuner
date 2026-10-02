@@ -429,6 +429,99 @@ body.in-tune .needle { background: var(--good); }
 }
 .clef-switch button.selected { border-color: var(--accent); color: var(--accent); }
 
+/* 節拍器 */
+.metro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 16px 32px;
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+}
+.beat-dots { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; min-height: 30px; }
+.beat-dot {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--line);
+  transition: background-color 0.08s, transform 0.08s;
+}
+.beat-dot.first { width: 30px; height: 30px; border: 3px solid var(--warn); }
+.beat-dot.on { background: var(--accent); transform: scale(1.2); }
+.beat-dot.on.first { background: var(--warn); }
+.beat-num {
+  font-size: clamp(96px, 30vw, 160px);
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: var(--line);
+  transition: color 0.08s;
+}
+.beat-num.on { color: var(--accent); }
+.beat-num.on.first { color: var(--warn); }
+.bpm-row { display: flex; align-items: baseline; gap: 8px; }
+.bpm { font-size: 56px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
+.bpm-unit { font-size: 20px; color: var(--muted); font-weight: 700; }
+.tempo-term { font-size: 20px; color: var(--muted); font-weight: 600; margin-top: -4px; }
+.bpm-ctrl { display: flex; align-items: center; gap: 6px; width: 100%; }
+.bpm-ctrl button {
+  min-width: 48px;
+  min-height: 48px;
+  border-radius: 12px;
+  border: 2px solid var(--line);
+  background: var(--surface);
+  font-size: 18px;
+  font-weight: 700;
+}
+.bpm-ctrl input { flex: 1; min-width: 0; }
+.metro-main { display: flex; gap: 10px; width: 100%; }
+.play-btn { flex: 2; min-height: 80px; font-size: 28px; }
+.play-btn.playing { background: var(--warn); }
+.tap-btn {
+  flex: 1;
+  min-height: 80px;
+  border-radius: 24px;
+  border: 2px solid var(--line);
+  background: var(--surface);
+  font-size: 24px;
+  font-weight: 700;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.tap-btn small { font-size: 14px; color: var(--muted); }
+.tap-btn:active { background: var(--line); }
+.metro-opts { width: 100%; display: flex; flex-direction: column; gap: 12px; }
+.opt-row { display: flex; align-items: center; gap: 10px; }
+.opt-label { flex: 0 0 auto; font-size: 17px; font-weight: 700; color: var(--muted); width: 2.4em; }
+.opt-row input[type=range] { flex: 1; }
+.chips { flex: 1; display: flex; flex-wrap: wrap; gap: 6px; }
+.chips button {
+  flex: 1 0 auto;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: 12px;
+  border: 2px solid var(--line);
+  background: var(--bg);
+  font-size: 17px;
+  font-weight: 600;
+}
+.chips button.selected { border-color: var(--accent); background: var(--accent); color: var(--accent-text); }
+.stepper { display: flex; align-items: center; gap: 16px; font-size: 20px; font-weight: 700; }
+.stepper button {
+  width: 48px;
+  height: 44px;
+  border-radius: 12px;
+  border: 2px solid var(--line);
+  background: var(--bg);
+  font-size: 22px;
+}
+.metro-opts .hint { margin: 0; }
+.ios-hint { text-align: center; }
+
 /* 麥克風錯誤 */
 .mic-error {
   margin: 0 auto;

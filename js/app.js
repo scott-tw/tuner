@@ -3,21 +3,26 @@
 import { detectPitch, PRESETS, createOctaveGuard, createNoiseGate, rms } from './pitch.js';
 import { noteLabels, staffSVG } from './notation.js';
 import { createPitchGraph } from './graph.js';
+import { METER_PRESETS, tempoTerm, clampBpm, accentPattern, createTapTempo } from './metronome.js';
 import {
   startAudio, stopAudio, getSampleRate, readBuffer, needsResume, resumeAudio, onStateChange,
   playReference, stopReference, isShortReferencePlaying, isReferencePlaying,
   micPermission, getDiagnostics, isUsingRaw,
+  startMetronome, updateMetronome, stopMetronome, popDueTicks,
 } from './audio.js';
 
 const $ = (id) => document.getElementById(id);
 
 // 每次發布新版時更新（顯示在設定頁與麥克風檢查，用來確認手機上跑的是哪一版）
-const APP_VERSION = '2026.09.29-2';
+const APP_VERSION = '2026.10.02';
 
 // ---------- 設定（localStorage，讀寫都要 try/catch） ----------
 
 const SETTINGS_KEY = 'tuner-settings';
-const settings = { a4: 440, naming: 'both', voiceType: 'child', maleClef: 'bass' };
+const settings = {
+  a4: 440, naming: 'both', voiceType: 'child', maleClef: 'bass',
+  metro: { bpm: 96, meter: '4/4', customBeats: 5, subdivision: 1, sound: 'beep', volume: 0.8 },
+};
 
 function loadSettings() {
   try {
@@ -26,6 +31,14 @@ function loadSettings() {
     if (['letter', 'solfege', 'both'].includes(saved.naming)) settings.naming = saved.naming;
     if (['child', 'female', 'male'].includes(saved.voiceType)) settings.voiceType = saved.voiceType;
     if (['bass', 'treble8vb'].includes(saved.maleClef)) settings.maleClef = saved.maleClef;
+    const m = saved.metro || {};
+    const t = settings.metro;
+    if (Number.isFinite(m.bpm)) t.bpm = clampBpm(m.bpm);
+    if ([...METER_PRESETS, 'custom'].includes(m.meter)) t.meter = m.meter;
+    if (Number.isInteger(m.customBeats) && m.customBeats >= 1 && m.customBeats <= 12) t.customBeats = m.customBeats;
+    if ([1, 2, 3, 4].includes(m.subdivision)) t.subdivision = m.subdivision;
+    if (['beep', 'wood', 'click'].includes(m.sound)) t.sound = m.sound;
+    if (Number.isFinite(m.volume)) t.volume = Math.min(1, Math.max(0.05, m.volume));
   } catch { /* 讀不到就用預設值 */ }
 }
 
@@ -190,6 +203,7 @@ let current = 'home';
 function showScreen(name) {
   if (mode && mode.screen !== name) stopListening();
   if (checking && name !== 'settings') stopMicCheck();
+  if (metroRunning && name !== 'metronome') stopMetro();
   document.querySelectorAll('.screen').forEach((s) => { s.hidden = s.id !== name; });
   current = name;
   window.scrollTo(0, 0);
@@ -513,6 +527,8 @@ function checkResume() {
 }
 
 document.addEventListener('visibilitychange', () => {
+  // 切到背景時計時會不準，節拍器先停下來
+  if (document.visibilityState === 'hidden' && metroRunning) stopMetro();
   if (document.visibilityState === 'visible' && listening) {
     checkResume();
     requestWakeLock(); // 切到背景時 Wake Lock 會被系統釋放，需重新要求
@@ -542,6 +558,135 @@ function releaseWakeLock() {
   try { if (wakeLock) wakeLock.release(); } catch { /* 略過 */ }
   wakeLock = null;
 }
+
+// ---------- 節拍器 ----------
+
+let metroRunning = false;
+let metroRaf = 0;
+const tapTempo = createTapTempo();
+
+const metroMeter = () => (settings.metro.meter === 'custom' ? settings.metro.customBeats : settings.metro.meter);
+const metroParams = () => ({ ...settings.metro, meter: metroMeter() });
+
+function renderMetro() {
+  const t = settings.metro;
+  $('bpm').textContent = t.bpm;
+  $('bpm-slider').value = t.bpm;
+  const term = tempoTerm(t.bpm);
+  $('tempo-term').textContent = `${term.it} ${term.zh}`;
+  $('metro-volume').value = t.volume;
+  document.querySelectorAll('[data-meter]').forEach((b) => b.classList.toggle('selected', b.dataset.meter === t.meter));
+  document.querySelectorAll('[data-sub]').forEach((b) => b.classList.toggle('selected', Number(b.dataset.sub) === t.subdivision));
+  document.querySelectorAll('[data-sound]').forEach((b) => b.classList.toggle('selected', b.dataset.sound === t.sound));
+  $('custom-row').hidden = t.meter !== 'custom';
+  $('custom-beats').textContent = t.customBeats;
+  $('meter-hint').hidden = t.meter !== '6/8';
+
+  // 每一拍一個圓點；重音（第一拍）、次重音的圓點加框
+  const pattern = accentPattern(metroMeter());
+  const dots = $('beat-dots');
+  if (dots.children.length !== pattern.length || dots.dataset.meter !== String(metroMeter())) {
+    dots.dataset.meter = String(metroMeter());
+    dots.innerHTML = pattern.map((lv) => `<span class="beat-dot${lv === 'strong' ? ' first' : ''}"></span>`).join('');
+    showBeat(null);
+  }
+}
+
+// 改了設定：存起來、更新畫面，播放中就立刻套用
+function metroChanged() {
+  saveSettings();
+  renderMetro();
+  if (metroRunning) updateMetronome(metroParams());
+}
+
+function setBpm(bpm) {
+  settings.metro.bpm = clampBpm(bpm);
+  metroChanged();
+}
+
+document.querySelectorAll('[data-bpm-step]').forEach((b) => b.addEventListener('click', () => {
+  setBpm(settings.metro.bpm + Number(b.dataset.bpmStep));
+}));
+$('bpm-slider').addEventListener('input', (e) => setBpm(Number(e.target.value)));
+$('metro-volume').addEventListener('input', (e) => {
+  settings.metro.volume = Number(e.target.value);
+  metroChanged();
+});
+document.querySelectorAll('[data-meter]').forEach((b) => b.addEventListener('click', () => {
+  settings.metro.meter = b.dataset.meter;
+  metroChanged();
+}));
+document.querySelectorAll('[data-custom-step]').forEach((b) => b.addEventListener('click', () => {
+  settings.metro.customBeats = Math.min(12, Math.max(1, settings.metro.customBeats + Number(b.dataset.customStep)));
+  metroChanged();
+}));
+document.querySelectorAll('[data-sub]').forEach((b) => b.addEventListener('click', () => {
+  settings.metro.subdivision = Number(b.dataset.sub);
+  metroChanged();
+}));
+document.querySelectorAll('[data-sound]').forEach((b) => b.addEventListener('click', () => {
+  settings.metro.sound = b.dataset.sound;
+  metroChanged();
+}));
+
+$('btn-tap').addEventListener('click', () => {
+  const bpm = tapTempo.tap(performance.now());
+  if (bpm) setBpm(bpm);
+});
+
+$('btn-metronome').addEventListener('click', () => {
+  go('metronome');
+  renderMetro();
+});
+
+// 在 click handler 內直接啟動聲音（iOS 限制）
+$('btn-metro-play').addEventListener('click', () => {
+  if (metroRunning) { stopMetro(); return; }
+  startMetronome(metroParams());
+  metroRunning = true;
+  $('btn-metro-play').textContent = '■ 停止';
+  $('btn-metro-play').classList.add('playing');
+  requestWakeLock();
+  cancelAnimationFrame(metroRaf);
+  metroRaf = requestAnimationFrame(metroLoop);
+});
+
+function stopMetro() {
+  stopMetronome();
+  metroRunning = false;
+  cancelAnimationFrame(metroRaf);
+  $('btn-metro-play').textContent = '▶ 開始';
+  $('btn-metro-play').classList.remove('playing');
+  if (!listening) releaseWakeLock();
+  showBeat(null);
+}
+
+// 聲音真正播出時才亮燈
+function metroLoop() {
+  metroRaf = requestAnimationFrame(metroLoop);
+  const ticks = popDueTicks().filter((t) => t.sub === 0); // 細分拍只有聲音，畫面跟著正拍
+  if (ticks.length) showBeat(ticks[ticks.length - 1]);
+}
+
+function showBeat(tick) {
+  const dots = $('beat-dots').children;
+  const num = $('beat-num');
+  [...dots].forEach((d, i) => d.classList.toggle('on', !!tick && i === tick.beat));
+  if (!tick) {
+    num.textContent = '1';
+    num.classList.remove('on', 'first');
+    return;
+  }
+  num.textContent = tick.beat + 1;
+  num.classList.add('on');
+  num.classList.toggle('first', tick.level === 'strong');
+  // 每拍一個小小的跳動
+  if (num.animate) num.animate([{ transform: 'scale(1.12)' }, { transform: 'scale(1)' }], { duration: 120 });
+}
+
+// iPhone／iPad：靜音模式會讓網頁沒有聲音，提醒一下
+$('ios-hint').hidden = !(/iPhone|iPad|iPod/.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
 
 // ---------- 麥克風檢查（設定頁） ----------
 

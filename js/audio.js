@@ -3,6 +3,8 @@
 // iOS Safari 規定：建立／resume AudioContext 與 getUserMedia 必須在使用者點擊的 handler 內「同步」呼叫，
 // 所以 startAudio() 在第一個 await 之前就把兩者都啟動。
 
+import { createSequencer, tickSeconds } from './metronome.js';
+
 const BUFFER_SIZE = 4096;
 
 let ctx = null;
@@ -108,6 +110,7 @@ function stopMic() {
 // 離開偵測畫面：關掉麥克風，並暫停 AudioContext 省電
 export function stopAudio() {
   stopReference();
+  stopMetronome();
   stopMic();
   if (ctx && ctx.state === 'running') ctx.suspend();
 }
@@ -204,4 +207,140 @@ export function isShortReferencePlaying() {
 
 export function isReferencePlaying() {
   return !!ref;
+}
+
+// ---------- 節拍器 ----------
+// 精準計時：每 25 毫秒檢查一次，把接下來 0.12 秒內要響的拍子，用音訊時鐘預先排好。
+// 畫面再依「聲音實際播出的時間」亮燈（popDueTicks），聲音與畫面才會同步。
+
+const LOOKAHEAD = 0.12;   // 秒
+const TIMER_MS = 25;
+const LEVEL_GAIN = { strong: 1, medium: 0.72, normal: 0.5, sub: 0.28 };
+
+let metro = null; // { params, seq, nextTime, queue, timer }
+let noise = null;
+
+function ensureContext() {
+  if (!ctx) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    ctx = new AC();
+  }
+  return ctx.resume();
+}
+
+// 必須在 click handler 內呼叫（iOS 限制）
+// params：{ bpm, meter, subdivision, sound, volume }
+export function startMetronome(params) {
+  const resumed = ensureContext();
+  stopMetronome();
+  metro = {
+    params: { ...params },
+    seq: createSequencer(params.meter, params.subdivision),
+    nextTime: ctx.currentTime + 0.08,
+    queue: [],
+    timer: setInterval(scheduleTicks, TIMER_MS),
+  };
+  scheduleTicks();
+  return resumed;
+}
+
+// 播放中改速度、拍號、細分或音色。拍號或細分改變時，從下一下重新由第一拍開始
+export function updateMetronome(params) {
+  if (!metro) return;
+  const restart = params.meter !== metro.params.meter || params.subdivision !== metro.params.subdivision;
+  metro.params = { ...params };
+  if (restart) metro.seq = createSequencer(params.meter, params.subdivision);
+}
+
+export function stopMetronome() {
+  if (!metro) return;
+  clearInterval(metro.timer);
+  metro = null;
+}
+
+export const isMetronomeRunning = () => !!metro;
+
+// 取出「已經播出」的拍子給畫面亮燈（扣掉手機播放聲音本身的延遲）
+export function popDueTicks() {
+  if (!metro) return [];
+  const heard = ctx.currentTime - (ctx.outputLatency || ctx.baseLatency || 0);
+  const due = [];
+  while (metro.queue.length && metro.queue[0].time <= heard) due.push(metro.queue.shift());
+  return due;
+}
+
+function scheduleTicks() {
+  const m = metro;
+  if (!m) return;
+  // 切到背景後計時器會變慢；回來時不要一次補響一堆拍子
+  if (m.nextTime < ctx.currentTime - 0.05) m.nextTime = ctx.currentTime + 0.05;
+  while (m.nextTime < ctx.currentTime + LOOKAHEAD) {
+    const tick = m.seq.next();
+    playClick(m.nextTime, tick.level, m.params.sound, m.params.volume);
+    m.queue.push({ ...tick, time: m.nextTime });
+    m.nextTime += tickSeconds(m.params.bpm, m.params.subdivision);
+  }
+}
+
+function noiseBuffer() {
+  if (!noise) {
+    noise = ctx.createBuffer(1, Math.round(ctx.sampleRate * 0.2), ctx.sampleRate);
+    const d = noise.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  return noise;
+}
+
+// 合成一下節拍聲。sound：'beep' 電子音／'wood' 木魚／'click' 拍點
+function playClick(t, level, sound, volume) {
+  const out = ctx.createGain();
+  out.gain.value = (LEVEL_GAIN[level] ?? 0.5) * volume;
+  out.connect(ctx.destination);
+  const env = (node, peak, decay) => {
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(peak, t + 0.001);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + decay);
+    node.connect(g).connect(out);
+  };
+  const high = level === 'strong' ? 1.6 : level === 'medium' ? 1.3 : 1; // 第一拍音較高
+  const stopAt = t + 0.15;
+
+  if (sound === 'click') {
+    const src = ctx.createBufferSource();
+    src.buffer = noiseBuffer();
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 2500 * high;
+    bp.Q.value = 1.2;
+    src.connect(bp);
+    env(bp, 1.4, 0.03);
+    src.start(t);
+    src.stop(stopAt);
+    return;
+  }
+
+  const osc = ctx.createOscillator();
+  if (sound === 'wood') {
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(700 * high, t);
+    osc.frequency.exponentialRampToValueAtTime(560 * high, t + 0.05); // 木頭敲擊的音高略降
+    env(osc, 1, 0.07);
+    const src = ctx.createBufferSource();
+    src.buffer = noiseBuffer();
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 1400 * high;
+    bp.Q.value = 4;
+    src.connect(bp);
+    env(bp, 0.6, 0.02);
+    src.start(t);
+    src.stop(stopAt);
+  } else {
+    osc.type = 'sine';
+    osc.frequency.value = 1100 * high;
+    env(osc, 1, 0.05);
+  }
+  osc.start(t);
+  osc.stop(stopAt);
 }

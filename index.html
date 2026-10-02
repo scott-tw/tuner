@@ -34,6 +34,9 @@
       <button class="big-btn secondary" id="btn-voice">
         <span class="big-btn-icon">🎤</span><span>人聲音高</span>
       </button>
+      <button class="big-btn secondary" id="btn-metronome">
+        <span class="big-btn-icon">🥁</span><span>節拍器</span>
+      </button>
     </div>
   </section>
 
@@ -162,6 +165,81 @@
       </div>
 
       <p class="freq">&nbsp;</p>
+    </div>
+  </section>
+
+  <!-- 節拍器 -->
+  <section id="metronome" class="screen" hidden>
+    <header class="topbar">
+      <button class="icon-btn back" data-back aria-label="返回">‹ 返回</button>
+      <h2>節拍器</h2>
+      <span></span>
+    </header>
+
+    <div class="metro">
+      <div class="beat-dots" id="beat-dots" aria-hidden="true"></div>
+      <div class="beat-num" id="beat-num" aria-live="off">1</div>
+
+      <div class="bpm-row"><span class="bpm" id="bpm">96</span><span class="bpm-unit">BPM</span></div>
+      <div class="tempo-term" id="tempo-term">&nbsp;</div>
+
+      <div class="bpm-ctrl">
+        <button data-bpm-step="-5">−5</button>
+        <button data-bpm-step="-1">−1</button>
+        <input type="range" id="bpm-slider" min="30" max="250" step="1" aria-label="速度">
+        <button data-bpm-step="1">+1</button>
+        <button data-bpm-step="5">+5</button>
+      </div>
+
+      <div class="metro-main">
+        <button class="big-btn play-btn" id="btn-metro-play">▶ 開始</button>
+        <button class="tap-btn" id="btn-tap">點拍<small>Tap</small></button>
+      </div>
+
+      <div class="card metro-opts">
+        <div class="opt-row">
+          <span class="opt-label">拍號</span>
+          <div class="chips">
+            <button data-meter="2/4">2/4</button>
+            <button data-meter="3/4">3/4</button>
+            <button data-meter="4/4">4/4</button>
+            <button data-meter="6/8">6/8</button>
+            <button data-meter="custom">自訂</button>
+          </div>
+        </div>
+        <div class="opt-row" id="custom-row" hidden>
+          <span class="opt-label">拍數</span>
+          <div class="stepper">
+            <button data-custom-step="-1" aria-label="減少一拍">−</button>
+            <span><span id="custom-beats">5</span> 拍</span>
+            <button data-custom-step="1" aria-label="增加一拍">+</button>
+          </div>
+        </div>
+        <div class="opt-row">
+          <span class="opt-label">細分</span>
+          <div class="chips">
+            <button data-sub="1">不細分</button>
+            <button data-sub="2">八分</button>
+            <button data-sub="3">三連音</button>
+            <button data-sub="4">十六分</button>
+          </div>
+        </div>
+        <div class="opt-row">
+          <span class="opt-label">音色</span>
+          <div class="chips">
+            <button data-sound="beep">電子音</button>
+            <button data-sound="wood">木魚</button>
+            <button data-sound="click">拍點</button>
+          </div>
+        </div>
+        <div class="opt-row">
+          <span class="opt-label">音量</span>
+          <input type="range" id="metro-volume" min="0.05" max="1" step="0.05" aria-label="音量">
+        </div>
+        <p class="hint" id="meter-hint" hidden>6/8 拍以八分音符為一拍，第 1 拍重音、第 4 拍次重音。</p>
+      </div>
+
+      <p class="hint ios-hint" id="ios-hint" hidden>沒有聲音？請關閉 iPhone 側邊的靜音模式。</p>
     </div>
   </section>
 

@@ -3,7 +3,7 @@
 // 策略：先用快取（開啟快、離線可用），同時在背景向網路確認是否有新版，有就更新快取，
 // 下一次開啟時就是新版本。新增檔案時，請把它加進下面的 FILES，並把 CACHE 的版本號加一。
 
-const CACHE = 'tuner-v2';
+const CACHE = 'tuner-v3';
 const FILES = [
   './',
   'index.html',
@@ -11,6 +11,7 @@ const FILES = [
   'js/app.js',
   'js/audio.js',
   'js/graph.js',
+  'js/metronome.js',
   'js/notation.js',
   'js/pitch.js',
   'manifest.webmanifest',
