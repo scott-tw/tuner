@@ -215,7 +215,7 @@ export function isReferencePlaying() {
 
 const LOOKAHEAD = 0.12;   // 秒
 const TIMER_MS = 25;
-const LEVEL_GAIN = { strong: 1, medium: 0.72, normal: 0.5, sub: 0.28 };
+const LEVEL_GAIN = { strong: 1, medium: 0.82, normal: 0.68, sub: 0.36 };
 
 let metro = null; // { params, seq, nextTime, queue, timer }
 let noise = null;
@@ -291,56 +291,77 @@ function noiseBuffer() {
   return noise;
 }
 
+// 節拍聲先經過限幅器再輸出：可以開得比較大聲，又不會破音
+let metroBus = null;
+function metroOutput() {
+  if (!metroBus || metroBus.context !== ctx) {
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -12;
+    comp.knee.value = 6;
+    comp.ratio.value = 8;
+    comp.attack.value = 0.001;
+    comp.release.value = 0.08;
+    const makeup = ctx.createGain();
+    makeup.gain.value = 1.1;
+    comp.connect(makeup).connect(ctx.destination);
+    metroBus = comp;
+  }
+  return metroBus;
+}
+
 // 合成一下節拍聲。sound：'beep' 電子音／'wood' 木魚／'click' 拍點
+// 聲音集中在 2–5 kHz（人耳最敏感、歌聲與多數樂器較少佔用的頻段），邊唱邊彈也聽得清楚
 function playClick(t, level, sound, volume) {
   const out = ctx.createGain();
-  out.gain.value = (LEVEL_GAIN[level] ?? 0.5) * volume;
-  out.connect(ctx.destination);
+  out.gain.value = (LEVEL_GAIN[level] ?? 0.6) * volume;
+  out.connect(metroOutput());
   const env = (node, peak, decay) => {
     const g = ctx.createGain();
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(peak, t + 0.001);
+    g.gain.exponentialRampToValueAtTime(peak, t + 0.0007); // 起音很快，聽起來清脆
     g.gain.exponentialRampToValueAtTime(0.0001, t + decay);
     node.connect(g).connect(out);
   };
-  const high = level === 'strong' ? 1.6 : level === 'medium' ? 1.3 : 1; // 第一拍音較高
-  const stopAt = t + 0.15;
+  const noiseBurst = (freq, q, peak, decay) => {
+    const src = ctx.createBufferSource();
+    src.buffer = noiseBuffer();
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = freq;
+    bp.Q.value = q;
+    const hp = ctx.createBiquadFilter(); // 去掉低頻，聲音乾淨不悶
+    hp.type = 'highpass';
+    hp.frequency.value = 1500;
+    src.connect(bp).connect(hp);
+    env(hp, peak, decay);
+    src.start(t);
+    src.stop(t + decay + 0.02);
+  };
+  const tone = (type, freq, peak, decay, drop = 1) => {
+    const osc = ctx.createOscillator();
+    osc.type = type;
+    osc.frequency.setValueAtTime(freq, t);
+    if (drop !== 1) osc.frequency.exponentialRampToValueAtTime(freq * drop, t + decay);
+    env(osc, peak, decay);
+    osc.start(t);
+    osc.stop(t + decay + 0.02);
+  };
+  // 第一拍高五度（×1.5），次重音高大三度（×1.25）
+  const high = level === 'strong' ? 1.5 : level === 'medium' ? 1.25 : 1;
 
   if (sound === 'click') {
-    const src = ctx.createBufferSource();
-    src.buffer = noiseBuffer();
-    const bp = ctx.createBiquadFilter();
-    bp.type = 'bandpass';
-    bp.frequency.value = 2500 * high;
-    bp.Q.value = 1.2;
-    src.connect(bp);
-    env(bp, 1.4, 0.03);
-    src.start(t);
-    src.stop(stopAt);
-    return;
-  }
-
-  const osc = ctx.createOscillator();
-  if (sound === 'wood') {
-    osc.type = 'triangle';
-    osc.frequency.setValueAtTime(700 * high, t);
-    osc.frequency.exponentialRampToValueAtTime(560 * high, t + 0.05); // 木頭敲擊的音高略降
-    env(osc, 1, 0.07);
-    const src = ctx.createBufferSource();
-    src.buffer = noiseBuffer();
-    const bp = ctx.createBiquadFilter();
-    bp.type = 'bandpass';
-    bp.frequency.value = 1400 * high;
-    bp.Q.value = 4;
-    src.connect(bp);
-    env(bp, 0.6, 0.02);
-    src.start(t);
-    src.stop(stopAt);
+    // 拍點：短促明亮的「喀」
+    noiseBurst(2800 * high, 1.8, 2.2, 0.025);
+    tone('sine', 2400 * high, 0.5, 0.015);
+  } else if (sound === 'wood') {
+    // 木魚：高音木塊，帶一點敲擊的雜音
+    tone('triangle', 1300 * high, 1, 0.055, 0.88);
+    tone('sine', 2600 * high, 0.35, 0.03);
+    noiseBurst(3600 * high, 3, 1, 0.015);
   } else {
-    osc.type = 'sine';
-    osc.frequency.value = 1100 * high;
-    env(osc, 1, 0.05);
+    // 電子音：明亮的嗶聲（基音＋八度泛音）
+    tone('sine', 2000 * high, 1, 0.07);
+    tone('sine', 4000 * high, 0.35, 0.04);
+    tone('square', 2000 * high, 0.08, 0.02);
   }
-  osc.start(t);
-  osc.stop(stopAt);
 }

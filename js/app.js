@@ -14,7 +14,7 @@ import {
 const $ = (id) => document.getElementById(id);
 
 // 每次發布新版時更新（顯示在設定頁與麥克風檢查，用來確認手機上跑的是哪一版）
-const APP_VERSION = '2026.10.02';
+const APP_VERSION = '2026.10.02-2';
 
 // ---------- 設定（localStorage，讀寫都要 try/catch） ----------
 
