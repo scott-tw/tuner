@@ -215,10 +215,9 @@ export function isReferencePlaying() {
 
 const LOOKAHEAD = 0.12;   // 秒
 const TIMER_MS = 25;
-const LEVEL_GAIN = { strong: 1, medium: 0.82, normal: 0.68, sub: 0.36 };
+const LEVEL_GAIN = { strong: 1, medium: 0.9, normal: 0.82, sub: 0.45 };
 
 let metro = null; // { params, seq, nextTime, queue, timer }
-let noise = null;
 
 function ensureContext() {
   if (!ctx) {
@@ -282,54 +281,80 @@ function scheduleTicks() {
   }
 }
 
-function noiseBuffer() {
-  if (!noise) {
-    noise = ctx.createBuffer(1, Math.round(ctx.sampleRate * 0.2), ctx.sampleRate);
-    const d = noise.getChannelData(0);
+const noiseBuffers = new WeakMap(); // 每個音訊引擎各一份白雜訊
+function noiseBuffer(ac) {
+  if (!noiseBuffers.has(ac)) {
+    const b = ac.createBuffer(1, Math.round(ac.sampleRate * 0.2), ac.sampleRate);
+    const d = b.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    noiseBuffers.set(ac, b);
   }
-  return noise;
+  return noiseBuffers.get(ac);
 }
 
 // 節拍聲先經過限幅器再輸出：可以開得比較大聲，又不會破音
-let metroBus = null;
-function metroOutput() {
-  if (!metroBus || metroBus.context !== ctx) {
-    const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -12;
-    comp.knee.value = 6;
-    comp.ratio.value = 8;
-    comp.attack.value = 0.001;
-    comp.release.value = 0.08;
-    const makeup = ctx.createGain();
-    makeup.gain.value = 1.1;
-    comp.connect(makeup).connect(ctx.destination);
-    metroBus = comp;
-  }
-  return metroBus;
+const MAKEUP_GAIN = 1.45;
+export function createMetroBus(ac) {
+  const comp = ac.createDynamicsCompressor();
+  comp.threshold.value = -18;
+  comp.knee.value = 4;
+  comp.ratio.value = 12;
+  comp.attack.value = 0.001;
+  comp.release.value = 0.1;
+  const makeup = ac.createGain();
+  makeup.gain.value = MAKEUP_GAIN;
+  // 最後一道柔和限幅：0.8 以下原樣通過，超過的部分平滑壓縮，保證不超過 1（不破音）
+  // WaveShaper 只處理 −1～1 的輸入，所以先縮小一半，曲線再放大回來（可處理到 ±2）
+  const pre = ac.createGain();
+  pre.gain.value = 0.5;
+  const shaper = ac.createWaveShaper();
+  shaper.curve = softClipCurve();
+  comp.connect(makeup).connect(pre).connect(shaper).connect(ac.destination);
+  return comp;
 }
 
-// 合成一下節拍聲。sound：'beep' 電子音／'wood' 木魚／'click' 拍點
-// 聲音集中在 2–5 kHz（人耳最敏感、歌聲與多數樂器較少佔用的頻段），邊唱邊彈也聽得清楚
+let clipCurve = null;
+function softClipCurve() {
+  if (!clipCurve) {
+    const n = 2048;
+    clipCurve = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const x = ((i / (n - 1)) * 2 - 1) * 2; // 實際輸入 −2～2
+      const a = Math.abs(x);
+      const y = a <= 0.8 ? a : 0.8 + 0.2 * Math.tanh((a - 0.8) / 0.2);
+      clipCurve[i] = Math.sign(x) * y;
+    }
+  }
+  return clipCurve;
+}
+
+let metroBus = null;
 function playClick(t, level, sound, volume) {
-  const out = ctx.createGain();
+  if (!metroBus || metroBus.context !== ctx) metroBus = createMetroBus(ctx);
+  synthClick(ctx, metroBus, t, level, sound, volume);
+}
+
+// 合成一下節拍聲（ac 可以是一般或離線的音訊引擎，方便量測音量）
+// sound：'beep' 電子音／'wood' 木魚／'click' 拍點
+export function synthClick(ac, bus, t, level, sound, volume) {
+  const out = ac.createGain();
   out.gain.value = (LEVEL_GAIN[level] ?? 0.6) * volume;
-  out.connect(metroOutput());
+  out.connect(bus);
   const env = (node, peak, decay) => {
-    const g = ctx.createGain();
+    const g = ac.createGain();
     g.gain.setValueAtTime(0.0001, t);
     g.gain.exponentialRampToValueAtTime(peak, t + 0.0007); // 起音很快，聽起來清脆
     g.gain.exponentialRampToValueAtTime(0.0001, t + decay);
     node.connect(g).connect(out);
   };
   const noiseBurst = (freq, q, peak, decay) => {
-    const src = ctx.createBufferSource();
-    src.buffer = noiseBuffer();
-    const bp = ctx.createBiquadFilter();
+    const src = ac.createBufferSource();
+    src.buffer = noiseBuffer(ac);
+    const bp = ac.createBiquadFilter();
     bp.type = 'bandpass';
     bp.frequency.value = freq;
     bp.Q.value = q;
-    const hp = ctx.createBiquadFilter(); // 去掉低頻，聲音乾淨不悶
+    const hp = ac.createBiquadFilter(); // 去掉低頻，聲音乾淨不悶
     hp.type = 'highpass';
     hp.frequency.value = 1500;
     src.connect(bp).connect(hp);
@@ -338,7 +363,7 @@ function playClick(t, level, sound, volume) {
     src.stop(t + decay + 0.02);
   };
   const tone = (type, freq, peak, decay, drop = 1) => {
-    const osc = ctx.createOscillator();
+    const osc = ac.createOscillator();
     osc.type = type;
     osc.frequency.setValueAtTime(freq, t);
     if (drop !== 1) osc.frequency.exponentialRampToValueAtTime(freq * drop, t + decay);
@@ -351,7 +376,7 @@ function playClick(t, level, sound, volume) {
 
   if (sound === 'click') {
     // 拍點：短促明亮的「喀」
-    noiseBurst(2800 * high, 1.8, 2.2, 0.025);
+    noiseBurst(2800 * high, 1.8, 1.6, 0.025);
     tone('sine', 2400 * high, 0.5, 0.015);
   } else if (sound === 'wood') {
     // 木魚：高音木塊，帶一點敲擊的雜音
@@ -359,9 +384,8 @@ function playClick(t, level, sound, volume) {
     tone('sine', 2600 * high, 0.35, 0.03);
     noiseBurst(3600 * high, 3, 1, 0.015);
   } else {
-    // 電子音：明亮的嗶聲（基音＋八度泛音）
-    tone('sine', 2000 * high, 1, 0.07);
-    tone('sine', 4000 * high, 0.35, 0.04);
-    tone('square', 2000 * high, 0.08, 0.02);
+    // 電子音：清楚但不尖的嗶聲（1320 Hz 基音＋輕微八度泛音）
+    tone('sine', 1320 * high, 1, 0.09);
+    tone('sine', 2640 * high, 0.22, 0.05);
   }
 }

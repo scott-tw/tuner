@@ -14,14 +14,14 @@ import {
 const $ = (id) => document.getElementById(id);
 
 // 每次發布新版時更新（顯示在設定頁與麥克風檢查，用來確認手機上跑的是哪一版）
-const APP_VERSION = '2026.10.02-2';
+const APP_VERSION = '2026.10.02-3';
 
 // ---------- 設定（localStorage，讀寫都要 try/catch） ----------
 
 const SETTINGS_KEY = 'tuner-settings';
 const settings = {
   a4: 440, naming: 'both', voiceType: 'child', maleClef: 'bass',
-  metro: { bpm: 96, meter: '4/4', customBeats: 5, subdivision: 1, sound: 'beep', volume: 0.8 },
+  metro: { bpm: 96, meter: '4/4', customBeats: 5, subdivision: 1, sound: 'beep', volume: 1 },
 };
 
 function loadSettings() {
@@ -38,7 +38,8 @@ function loadSettings() {
     if (Number.isInteger(m.customBeats) && m.customBeats >= 1 && m.customBeats <= 12) t.customBeats = m.customBeats;
     if ([1, 2, 3, 4].includes(m.subdivision)) t.subdivision = m.subdivision;
     if (['beep', 'wood', 'click'].includes(m.sound)) t.sound = m.sound;
-    if (Number.isFinite(m.volume)) t.volume = Math.min(1, Math.max(0.05, m.volume));
+    // 0.8 是舊版的預設音量（2026.10.02-3 起預設改為最大），沒調整過的人一併改成最大
+    if (Number.isFinite(m.volume) && m.volume !== 0.8) t.volume = Math.min(1, Math.max(0.05, m.volume));
   } catch { /* 讀不到就用預設值 */ }
 }
 
